@@ -308,23 +308,61 @@ export default function Home() {
 
   useEffect(() => {
     const viewport = window.visualViewport;
+    let settledHeight = Math.max(
+      window.innerHeight,
+      viewport?.height ?? window.innerHeight,
+    );
+
     const updateViewport = () => {
-      const height = viewport?.height ?? window.innerHeight;
+      const activeElement = document.activeElement;
+      const textInputFocused =
+        activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement ||
+        activeElement instanceof HTMLSelectElement ||
+        activeElement?.getAttribute("contenteditable") === "true";
+      const visualHeight = viewport?.height ?? window.innerHeight;
+      const visualTop = viewport?.offsetTop ?? 0;
+
+      if (!textInputFocused) {
+        settledHeight = Math.max(
+          settledHeight,
+          window.innerHeight,
+          visualHeight + visualTop,
+        );
+      }
+
+      const keyboardOpen =
+        textInputFocused &&
+        (settledHeight - visualHeight > 80 || visualTop > 0);
+
       document.documentElement.style.setProperty(
         "--app-viewport-height",
-        `${height}px`,
+        `${keyboardOpen ? visualHeight : window.innerHeight}px`,
       );
-      document.documentElement.dataset.keyboard =
-        viewport && viewport.height < window.innerHeight - 120
-          ? "open"
-          : "closed";
+      document.documentElement.style.setProperty(
+        "--app-viewport-top",
+        `${keyboardOpen ? visualTop : 0}px`,
+      );
+      document.documentElement.dataset.keyboard = keyboardOpen
+        ? "open"
+        : "closed";
     };
+
     updateViewport();
     viewport?.addEventListener("resize", updateViewport);
     viewport?.addEventListener("scroll", updateViewport);
+    window.addEventListener("resize", updateViewport);
+    document.addEventListener("focusin", updateViewport);
+    document.addEventListener("focusout", updateViewport);
+
     return () => {
       viewport?.removeEventListener("resize", updateViewport);
       viewport?.removeEventListener("scroll", updateViewport);
+      window.removeEventListener("resize", updateViewport);
+      document.removeEventListener("focusin", updateViewport);
+      document.removeEventListener("focusout", updateViewport);
+      document.documentElement.style.removeProperty("--app-viewport-height");
+      document.documentElement.style.removeProperty("--app-viewport-top");
       delete document.documentElement.dataset.keyboard;
     };
   }, []);
@@ -340,6 +378,19 @@ export default function Home() {
   useEffect(() => {
     if (composerOpen) textareaRef.current?.focus();
   }, [composerOpen]);
+
+  useEffect(() => {
+    if (!composerOpen && !menuOpen) return;
+
+    const closeOverlay = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setComposerOpen(false);
+      setMenuOpen(false);
+    };
+
+    window.addEventListener("keydown", closeOverlay);
+    return () => window.removeEventListener("keydown", closeOverlay);
+  }, [composerOpen, menuOpen]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -917,14 +968,28 @@ export default function Home() {
       )}
 
       {menuOpen && (
-        <div className="menu-overlay">
-          <div className="menu-panel">
+        <div
+          className="menu-overlay"
+          onMouseDown={() => setMenuOpen(false)}
+          role="presentation"
+        >
+          <aside
+            className="menu-panel"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Menu"
+          >
             <div className="menu-top">
               <div className="brand-lockup">
                 <span className="brand-mark small">N</span>
                 <span>northstar</span>
               </div>
-              <button className="icon-button" onClick={() => setMenuOpen(false)}>
+              <button
+                className="icon-button"
+                onClick={() => setMenuOpen(false)}
+                aria-label="Menu sluiten"
+              >
                 <X size={21} />
               </button>
             </div>
@@ -969,7 +1034,7 @@ export default function Home() {
               <BarChart3 size={20} /> Insights
               <ChevronRight size={18} />
             </button>
-          </div>
+          </aside>
         </div>
       )}
 
