@@ -21,6 +21,11 @@ export const appConfig = {
   openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.6-terra",
   transcribeModel:
     process.env.OPENAI_TRANSCRIBE_MODEL ?? "gpt-4o-mini-transcribe",
+  vapidPublicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+  vapidPrivateKey: process.env.VAPID_PRIVATE_KEY,
+  vapidSubject:
+    process.env.VAPID_SUBJECT ?? "https://northstar-ward.netlify.app",
+  cronSecret: process.env.CRON_SECRET,
 };
 
 export const featureStatus = {
@@ -34,6 +39,15 @@ export const featureStatus = {
 export const publicFeatureStatus = {
   supabase:
     isUsable(appConfig.supabaseUrl) && isUsable(appConfig.supabaseAnonKey),
+  push: isUsable(appConfig.vapidPublicKey),
+};
+
+export const notificationFeatureStatus = {
+  push:
+    isUsable(appConfig.vapidPublicKey) &&
+    isUsable(appConfig.vapidPrivateKey) &&
+    isUsable(appConfig.vapidSubject),
+  cron: isUsable(appConfig.cronSecret),
 };
 
 export function assertSupabaseConfigured() {

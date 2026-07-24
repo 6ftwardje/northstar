@@ -1,9 +1,16 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   ArrowUp,
   BarChart3,
+  Bell,
   Brain,
   CalendarDays,
   Check,
@@ -22,6 +29,7 @@ import {
   SunMedium,
   X,
 } from "lucide-react";
+import { NotificationSettings } from "@/app/notification-settings";
 import {
   chooseRecorderMimeType,
   getAudioFilename,
@@ -105,6 +113,8 @@ export default function Home() {
   const [listening, setListening] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationSettingsOpen, setNotificationSettingsOpen] =
+    useState(false);
   const [toast, setToast] = useState("");
   const [integrationStatus, setIntegrationStatus] =
     useState<IntegrationStatus>({
@@ -229,12 +239,32 @@ export default function Home() {
     if (composerOpen) textareaRef.current?.focus();
   }, [composerOpen]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requestedView = params.get("view");
+    const frame = window.requestAnimationFrame(() => {
+      if (
+        requestedView === "today" ||
+        requestedView === "coach" ||
+        requestedView === "evening" ||
+        requestedView === "progress" ||
+        requestedView === "memory"
+      ) {
+        setTab(requestedView);
+      }
+      if (params.get("compose") === "1") {
+        setComposerOpen(true);
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
   const date = todayLabel();
 
-  function showToast(message: string) {
+  const showToast = useCallback((message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 2400);
-  }
+  }, []);
 
   async function requestCoach(
     message: string,
@@ -539,7 +569,11 @@ export default function Home() {
             </button>
           ))}
         </nav>
-        <button className="rail-button settings" aria-label="Instellingen">
+        <button
+          className="rail-button settings"
+          aria-label="Instellingen"
+          onClick={() => setNotificationSettingsOpen(true)}
+        >
           <Settings2 size={21} strokeWidth={1.8} />
           <span>Instellingen</span>
         </button>
@@ -754,9 +788,25 @@ export default function Home() {
               <Settings2 size={20} /> Coachinstellingen
               <ChevronRight size={18} />
             </button>
+            <button
+              className="menu-row"
+              onClick={() => {
+                setMenuOpen(false);
+                setNotificationSettingsOpen(true);
+              }}
+            >
+              <Bell size={20} /> Notificaties & dagritme
+              <ChevronRight size={18} />
+            </button>
           </div>
         </div>
       )}
+
+      <NotificationSettings
+        open={notificationSettingsOpen}
+        onClose={() => setNotificationSettingsOpen(false)}
+        onToast={showToast}
+      />
 
       {toast && (
         <div className="toast">

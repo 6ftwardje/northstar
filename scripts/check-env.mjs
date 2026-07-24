@@ -10,6 +10,9 @@ const required = [
   "OPENAI_MODEL",
   "OPENAI_TRANSCRIBE_MODEL",
   "CRON_SECRET",
+  "NEXT_PUBLIC_VAPID_PUBLIC_KEY",
+  "VAPID_PRIVATE_KEY",
+  "VAPID_SUBJECT",
 ];
 const placeholderMarkers = ["replace_with_", "YOUR_PROJECT_REF"];
 

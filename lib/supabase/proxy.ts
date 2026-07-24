@@ -6,6 +6,7 @@ const PUBLIC_PATHS = [
   "/login",
   "/auth/callback",
   "/api/status",
+  "/api/notifications/dispatch",
   "/manifest.webmanifest",
   "/sw.js",
 ];
@@ -40,8 +41,10 @@ export async function updateSession(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
 
-  const isPublic = PUBLIC_PATHS.some((path) =>
-    request.nextUrl.pathname.startsWith(path),
+  const isPublic = PUBLIC_PATHS.some(
+    (path) =>
+      request.nextUrl.pathname === path ||
+      request.nextUrl.pathname.startsWith(`${path}/`),
   );
 
   if (!claims && !isPublic) {

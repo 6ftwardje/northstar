@@ -7,6 +7,10 @@ const required = [
   "OPENAI_API_KEY",
   "OPENAI_MODEL",
   "OPENAI_TRANSCRIBE_MODEL",
+  "NEXT_PUBLIC_VAPID_PUBLIC_KEY",
+  "VAPID_PRIVATE_KEY",
+  "VAPID_SUBJECT",
+  "CRON_SECRET",
 ];
 
 const missing = required.filter((key) => !process.env[key]);
@@ -64,6 +68,10 @@ for (const table of [
   "daily_reviews",
   "memories",
   "context_runs",
+  "notification_preferences",
+  "push_subscriptions",
+  "scheduled_actions",
+  "notification_deliveries",
 ]) {
   await check(`Tabel ${table}`, async () => {
     const { error } = await supabase
@@ -74,6 +82,18 @@ for (const table of [
     return "schema beschikbaar";
   });
 }
+
+await check("Web Push-configuratie", async () => {
+  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  const privateKey = process.env.VAPID_PRIVATE_KEY;
+  const subject = process.env.VAPID_SUBJECT;
+  if (!publicKey || publicKey.length < 80) throw new Error("publieke VAPID-key ongeldig");
+  if (!privateKey || privateKey.length < 40) throw new Error("private VAPID-key ongeldig");
+  if (!subject?.startsWith("mailto:") && !subject?.startsWith("https://")) {
+    throw new Error("VAPID_SUBJECT moet mailto: of https:// gebruiken");
+  }
+  return "sleutelpaar aanwezig";
+});
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 await check("OpenAI coachmodel", async () => {

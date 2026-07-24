@@ -12,6 +12,8 @@ gezondheid en duurzame gedragsverandering.
 - eerlijke lege toestanden tot er genoeg data is voor progress en memory;
 - lokale PWA-persistentie met herstelbare cloudsynchronisatie;
 - installeerbare PWA-basis met iPhone-appicoon;
+- native Web Push met ochtend-, avond- en wekelijkse ritmes;
+- conditionele avond-follow-up die stopt zodra de review klaar is;
 - voorbereid Supabase-schema met Row Level Security;
 - pure context compiler voor reproduceerbare AI-context.
 
@@ -39,6 +41,9 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
 OPENAI_API_KEY
 CRON_SECRET
+NEXT_PUBLIC_VAPID_PUBLIC_KEY
+VAPID_PRIVATE_KEY
+VAPID_SUBJECT
 ```
 
 Plaats secrets nooit in clientcomponenten of in git.
@@ -54,7 +59,8 @@ npm run check:setup
 1. Maak een project op [Supabase](https://supabase.com/dashboard).
 2. Open **SQL Editor** en voer achtereenvolgens de volledige inhoud uit van
    `supabase/migrations/0001_initial.sql` en
-   `supabase/migrations/0002_operational_hardening.sql`.
+   `supabase/migrations/0002_operational_hardening.sql` en
+   `supabase/migrations/0003_notification_loop.sql`.
 3. Kopieer bij **Project Settings → API** de project URL, publishable/anon key
    en service-role key naar `.env.local`.
 4. Zet bij **Authentication → URL Configuration**:
@@ -119,6 +125,30 @@ openssl rand -hex 32
 ```
 
 Plaats de uitvoer in `CRON_SECRET` en herstart `npm run dev`.
+
+## Pushnotificaties
+
+Northstar gebruikt native Web Push vanuit de geïnstalleerde iPhone-PWA. De
+standaardmomenten zijn 08:30 voor de belangrijkste impactzet, 21:00 voor de
+avondcheck-in, een conditionele follow-up na 45 minuten en zondag 19:00 voor
+de weekreview.
+
+1. Genereer één VAPID-sleutelpaar:
+
+   ```bash
+   npx web-push generate-vapid-keys
+   ```
+
+2. Plaats de publieke key in `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, de private key in
+   `VAPID_PRIVATE_KEY` en gebruik je e-mailadres als
+   `VAPID_SUBJECT=mailto:jij@example.com`.
+3. Plan iedere vijf minuten een beveiligde `POST` naar
+   `/api/notifications/dispatch` met
+   `Authorization: Bearer <CRON_SECRET>`. Supabase Cron is hiervoor voorzien.
+4. Open in Northstar **Notificaties & dagritme**, activeer push vanuit de
+   geïnstalleerde PWA en stuur een testmelding.
+
+De private VAPID-key en `CRON_SECRET` blijven uitsluitend server-side.
 
 ## Kwaliteitscontrole
 
