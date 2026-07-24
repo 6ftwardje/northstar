@@ -19,6 +19,8 @@ type AuthStep = "credentials" | "code";
 type AuthStatus = "idle" | "loading" | "success" | "error";
 
 const RESEND_SECONDS = 60;
+const MIN_OTP_LENGTH = 6;
+const MAX_OTP_LENGTH = 10;
 
 function getSafeNextPath() {
   const requestedPath = new URLSearchParams(window.location.search).get("next");
@@ -146,9 +148,12 @@ export default function LoginPage() {
 
     const normalizedCode = code.replace(/\D/g, "");
 
-    if (normalizedCode.length !== 6) {
+    if (
+      normalizedCode.length < MIN_OTP_LENGTH ||
+      normalizedCode.length > MAX_OTP_LENGTH
+    ) {
       setStatus("error");
-      setError("Vul de volledige code van zes cijfers in.");
+      setError("Vul de volledige code uit je e-mail in.");
       return;
     }
 
@@ -325,7 +330,7 @@ export default function LoginPage() {
                     </>
                   ) : (
                     <p className="auth-method-note">
-                      We sturen een code van zes cijfers. Kopieer die vanuit je
+                      We sturen een eenmalige inlogcode. Kopieer die vanuit je
                       inbox en keer terug naar Northstar.
                     </p>
                   )}
@@ -387,7 +392,7 @@ export default function LoginPage() {
                 </div>
 
                 <form className="login-form" onSubmit={verifyCode}>
-                  <label htmlFor="otp">Zescijferige code</label>
+                  <label htmlFor="otp">Inlogcode</label>
                   <input
                     id="otp"
                     name="otp"
@@ -396,15 +401,18 @@ export default function LoginPage() {
                     inputMode="numeric"
                     autoComplete="one-time-code"
                     pattern="[0-9]*"
-                    maxLength={6}
+                    minLength={MIN_OTP_LENGTH}
+                    maxLength={MAX_OTP_LENGTH}
                     value={code}
                     onChange={(event) => {
                       setCode(
-                        event.target.value.replace(/\D/g, "").slice(0, 6),
+                        event.target.value
+                          .replace(/\D/g, "")
+                          .slice(0, MAX_OTP_LENGTH),
                       );
                       resetFeedback();
                     }}
-                    placeholder="000000"
+                    placeholder="00000000"
                     autoFocus
                     required
                   />
@@ -419,7 +427,7 @@ export default function LoginPage() {
                   <button
                     className="login-primary-button"
                     type="submit"
-                    disabled={isBusy || code.length !== 6}
+                    disabled={isBusy || code.length < MIN_OTP_LENGTH}
                   >
                     {status === "loading" ? (
                       "Code controleren…"

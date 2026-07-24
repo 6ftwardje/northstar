@@ -64,7 +64,7 @@ npm run check:setup
    - Redirect URL productie:
      `https://northstar-ward.netlify.app/auth/callback`
 5. Open **Authentication → Email Templates → Magic Link**. Verander de
-   template zodat Supabase een zescijferige code stuurt in plaats van een
+   template zodat Supabase een eenmalige code stuurt in plaats van een
    browserlink. Bijvoorbeeld:
 
    ```html
@@ -99,7 +99,7 @@ daarom niet inloggen. Northstar vermijdt die browserwissel:
 
 1. Open Northstar via het beginscherm.
 2. Kies **E-mailcode**, vul je adres in en tik op **Stuur inlogcode**.
-3. Lees of kopieer de zescijferige code uit je inbox.
+3. Lees of kopieer de volledige code uit je inbox.
 4. Keer terug naar hetzelfde Northstar-venster en voer de code in.
 
 Je kunt ook **Wachtwoord** kiezen. Beide methodes maken de sessie aan binnen
