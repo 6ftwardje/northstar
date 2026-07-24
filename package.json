@@ -10,7 +10,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "check:setup": "node scripts/check-env.mjs"
+    "check:setup": "node scripts/check-env.mjs",
+    "health": "node --env-file=.env.local scripts/health-check.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "verify": "npm run lint && npm run test && npm run build"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.3",
@@ -23,12 +28,14 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "eslint": "^9.0.0",
     "eslint-config-next": "16.2.11",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "^4.1.10"
   },
   "overrides": {
     "postcss": "8.5.22",

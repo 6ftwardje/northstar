@@ -5,6 +5,8 @@ node_modules
 .vercel
 .netlify
 .playwright-cli
+playwright-report
+test-results
 deno.lock
 output
 *.log

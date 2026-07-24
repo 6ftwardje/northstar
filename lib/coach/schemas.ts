@@ -4,6 +4,7 @@ export const CoachRequestSchema = z.object({
   message: z.string().trim().min(1).max(12_000),
   channel: z.enum(["journal", "chat"]).default("journal"),
   occurredAt: z.string().datetime().nullable().default(null),
+  clientEntryId: z.string().uuid().optional(),
 });
 
 export const MemoryCandidateSchema = z.object({

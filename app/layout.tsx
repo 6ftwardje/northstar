@@ -1,18 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { DM_Sans, Instrument_Serif } from "next/font/google";
 import { PwaRegister } from "./pwa-register";
 import "./globals.css";
-
-const sans = DM_Sans({
-  subsets: ["latin"],
-  variable: "--font-sans",
-});
-
-const serif = Instrument_Serif({
-  subsets: ["latin"],
-  weight: "400",
-  variable: "--font-serif",
-});
 
 export const metadata: Metadata = {
   title: "Northstar — Personal Life Guide",
@@ -21,12 +9,12 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: "Northstar",
-    statusBarStyle: "black-translucent",
+    statusBarStyle: "default",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#11120f",
+  themeColor: "#f5f5f7",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -37,7 +25,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="nl">
-      <body className={`${sans.variable} ${serif.variable}`}>
+      <body>
         {children}
         <PwaRegister />
       </body>

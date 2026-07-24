@@ -6,19 +6,17 @@ gezondheid en duurzame gedragsverandering.
 ## Huidige MVP
 
 - meerdere journal-entries per dag;
-- tekst en een prototype van de spraakflow;
-- één dagelijkse Impact Move;
+- tekst en iPhone-compatibele audio-opname;
 - actieve, directe coachinterface;
 - verplichte avondcheck-in om 21:00;
-- progress-overzicht voor impact, slaap, cannabis en training;
-- transparant Memory-overzicht;
-- lokale browserpersistentie voor snelle productvalidatie;
+- eerlijke lege toestanden tot er genoeg data is voor progress en memory;
+- lokale PWA-persistentie met herstelbare cloudsynchronisatie;
 - installeerbare PWA-basis met iPhone-appicoon;
 - voorbereid Supabase-schema met Row Level Security;
 - pure context compiler voor reproduceerbare AI-context.
 
-Zolang de placeholders niet zijn ingevuld, gebruikt de app demo-reacties en
-lokale browseropslag. Na configuratie bewaart de API entries in Supabase,
+Zolang de cloud niet operationeel is, bewaart de app entries lokaal en toont
+ze geen verzonnen coachreacties. Na configuratie bewaart de API entries in Supabase,
 assembleert relevante context, vraagt een gestructureerd coachantwoord aan
 OpenAI en schrijft memory candidates met hun bronentry terug.
 
@@ -54,8 +52,9 @@ npm run check:setup
 ## Supabase instellen
 
 1. Maak een project op [Supabase](https://supabase.com/dashboard).
-2. Open **SQL Editor** en voer de volledige inhoud van
-   `supabase/migrations/0001_initial.sql` uit.
+2. Open **SQL Editor** en voer achtereenvolgens de volledige inhoud uit van
+   `supabase/migrations/0001_initial.sql` en
+   `supabase/migrations/0002_operational_hardening.sql`.
 3. Kopieer bij **Project Settings → API** de project URL, publishable/anon key
    en service-role key naar `.env.local`.
 4. Zet bij **Authentication → URL Configuration**:
@@ -121,6 +120,23 @@ openssl rand -hex 32
 
 Plaats de uitvoer in `CRON_SECRET` en herstart `npm run dev`.
 
+## Kwaliteitscontrole
+
+```bash
+npm run verify
+npm run test:e2e
+npm run health
+```
+
+`verify` voert lint, unit-tests en de productiebuild uit. De browsertests
+draaien lokaal in Chromium met een iPhone-profiel; CI voegt WebKit toe.
+`health` doet veilige live reads op het databaseschema en controleert of de
+gekozen OpenAI-modellen bereikbaar zijn.
+
+Voor integratietests zonder productiedata staat een apart contract in
+`.env.test.example`. De volledige aanpak en resterende vereisten staan in
+`docs/operational-plan.md`.
+
 ## Datamodel
 
 De eerste migratie staat in `supabase/migrations/0001_initial.sql`. Ruwe
@@ -138,9 +154,4 @@ De context compiler in `lib/context.ts` assembleert per coachbeurt:
 
 ## Volgende implementatiestappen
 
-1. Browserstate hydrateren vanuit Supabase na login.
-2. Echte MediaRecorder-opname aansluiten op `/api/transcribe`.
-3. Candidate memories reviewen, dedupliceren en activeren.
-4. Avondreview server-side opslaan en consolideren.
-5. Web push en de 21:00 reminderflow.
-6. Productie-installatietest op iPhone.
+Zie [docs/operational-plan.md](docs/operational-plan.md).

@@ -5,37 +5,38 @@ import {
   ArrowUp,
   BarChart3,
   Brain,
-  BriefcaseBusiness,
   CalendarDays,
   Check,
   ChevronRight,
-  Circle,
-  Dumbbell,
-  Flame,
-  Leaf,
+  CloudOff,
   Menu,
   MessageCircle,
   Mic,
   Moon,
-  MoreHorizontal,
   Pause,
   Plus,
+  RefreshCw,
   Send,
   Settings2,
   Sparkles,
   SunMedium,
-  Target,
   X,
 } from "lucide-react";
+import {
+  chooseRecorderMimeType,
+  getAudioFilename,
+} from "@/lib/audio";
 
 type Tab = "today" | "coach" | "evening" | "progress" | "memory";
 type EntryKind = "note" | "coach" | "health" | "impact";
 
 type JournalEntry = {
   id: string;
+  clientId?: string;
   time: string;
   text: string;
   kind: EntryKind;
+  syncState?: "local" | "pending" | "synced" | "failed";
 };
 
 type ChatMessage = {
@@ -49,7 +50,9 @@ type IntegrationStatus = {
   supabase: boolean;
   openai: boolean;
   authenticated: boolean;
+  schemaReady: boolean;
   ready: boolean;
+  issues: string[];
   model: string | null;
 };
 
@@ -73,82 +76,8 @@ const NAV_ITEMS: Array<{
   { id: "memory", label: "Memory", icon: Brain },
 ];
 
-const INITIAL_ENTRIES: JournalEntry[] = [
-  {
-    id: "1",
-    time: "08:42",
-    kind: "impact",
-    text: "Mijn impact move voor vandaag: het voorstel voor de nieuwe klant afronden en versturen.",
-  },
-  {
-    id: "2",
-    time: "11:16",
-    kind: "note",
-    text: "Goede call gehad. Ik merk wel dat ik weer in kleine operationele taken verdwijn.",
-  },
-  {
-    id: "3",
-    time: "11:17",
-    kind: "coach",
-    text: "Je herkent de afleiding op tijd. Rond nu eerst de kern van het voorstel af. Administratie kan na 15:00.",
-  },
-];
-
-const INITIAL_CHAT: ChatMessage[] = [
-  {
-    id: "c1",
-    role: "coach",
-    time: "11:17",
-    text: "Je zit dicht bij het belangrijkste werk, maar verschuift naar taken die makkelijker voelen. Open het voorstel en werk alleen de pricing en next step af. Stuur me een update wanneer het verstuurd is.",
-  },
-  {
-    id: "c2",
-    role: "user",
-    time: "11:21",
-    text: "Deal. Ik zet Slack een uur uit.",
-  },
-  {
-    id: "c3",
-    role: "coach",
-    time: "11:21",
-    text: "Goed. Geen nieuw systeem bouwen, geen research. Eén uur, één voorstel.",
-  },
-];
-
-const MEMORY_ITEMS = [
-  {
-    category: "Business",
-    title: "Impact boven activiteit",
-    detail:
-      "Ward wil sturen op omzet, klanten, product en strategische bottlenecks — niet op taken die alleen productief voelen.",
-    confidence: "Door jou bevestigd",
-    icon: BriefcaseBusiness,
-  },
-  {
-    category: "Coaching",
-    title: "Directe feedback werkt",
-    detail:
-      "De coach mag excuses en inconsistenties duidelijk benoemen, zolang de toon opbouwend en correct blijft.",
-    confidence: "Door jou bevestigd",
-    icon: Target,
-  },
-  {
-    category: "Health",
-    title: "Cannabis bewust verminderen",
-    detail:
-      "Het doel is minder gebruiken door triggers te herkennen en werkbare alternatieven te testen, niet door alles te verbieden.",
-    confidence: "Door jou bevestigd",
-    icon: Leaf,
-  },
-  {
-    category: "Movement",
-    title: "Gym is beschikbaar",
-    detail:
-      "Ward heeft een gymabonnement en sportkleding. De voornaamste bottleneck is uitvoering, niet toegang.",
-    confidence: "Hoge zekerheid",
-    icon: Dumbbell,
-  },
-];
+const LEGACY_DEMO_ENTRY_IDS = new Set(["1", "2", "3"]);
+const LEGACY_DEMO_CHAT_IDS = new Set(["c1", "c2", "c3"]);
 
 function nowTime() {
   return new Intl.DateTimeFormat("nl-BE", {
@@ -168,14 +97,13 @@ function todayLabel() {
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("today");
-  const [entries, setEntries] = useState<JournalEntry[]>(INITIAL_ENTRIES);
-  const [chat, setChat] = useState<ChatMessage[]>(INITIAL_CHAT);
+  const [entries, setEntries] = useState<JournalEntry[]>([]);
+  const [chat, setChat] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [chatDraft, setChatDraft] = useState("");
   const [composerOpen, setComposerOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
-  const [impactDone, setImpactDone] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [integrationStatus, setIntegrationStatus] =
@@ -183,7 +111,9 @@ export default function Home() {
       supabase: false,
       openai: false,
       authenticated: false,
+      schemaReady: false,
       ready: false,
+      issues: [],
       model: null,
     });
   const [hydrated, setHydrated] = useState(false);
@@ -198,11 +128,25 @@ export default function Home() {
       if (stored) {
         try {
           const state = JSON.parse(stored);
-          setEntries(state.entries ?? INITIAL_ENTRIES);
-          setChat(state.chat ?? INITIAL_CHAT);
-          setImpactDone(Boolean(state.impactDone));
+          setEntries(
+            ((state.entries ?? []) as JournalEntry[])
+              .filter((entry) => !LEGACY_DEMO_ENTRY_IDS.has(entry.id))
+              .map((entry) => ({
+                ...entry,
+                clientId: entry.clientId ?? entry.id,
+                syncState:
+                  entry.kind === "coach"
+                    ? "synced"
+                    : (entry.syncState ?? "local"),
+              })),
+          );
+          setChat(
+            ((state.chat ?? []) as ChatMessage[]).filter(
+              (message) => !LEGACY_DEMO_CHAT_IDS.has(message.id),
+            ),
+          );
         } catch {
-          // Keep demo defaults when local data is malformed.
+          // Keep a clean local state when saved data is malformed.
         }
       }
       setHydrated(true);
@@ -223,12 +167,12 @@ export default function Home() {
               kind: string;
               content: string;
               occurred_at: string;
+              metadata?: Record<string, unknown>;
             }>;
           } | null,
         ) => {
-          if (!result?.entries?.length) return;
-          setEntries(
-            result.entries.map((entry) => ({
+          if (!result) return;
+          const cloudEntries: JournalEntry[] = (result.entries ?? []).map((entry) => ({
               id: entry.id,
               time: new Intl.DateTimeFormat("nl-BE", {
                 hour: "2-digit",
@@ -236,8 +180,27 @@ export default function Home() {
               }).format(new Date(entry.occurred_at)),
               text: entry.content,
               kind: entry.kind === "coach_message" ? "coach" : "note",
-            })),
-          );
+              syncState: "synced",
+            }));
+          setEntries((current) => {
+            const cloudClientIds = new Set(
+              (result.entries ?? [])
+                .map((entry) => {
+                  const metadata = entry.metadata;
+                  return typeof metadata?.client_entry_id === "string"
+                    ? metadata.client_entry_id
+                    : null;
+                })
+                .filter(Boolean),
+            );
+            const localOnly = current.filter(
+              (entry) =>
+                entry.kind !== "coach" &&
+                entry.syncState !== "synced" &&
+                !cloudClientIds.has(entry.clientId ?? entry.id),
+            );
+            return [...cloudEntries, ...localOnly];
+          });
         },
       )
       .catch(() => {
@@ -258,9 +221,9 @@ export default function Home() {
     if (!hydrated) return;
     localStorage.setItem(
       "northstar-state",
-      JSON.stringify({ entries, chat, impactDone }),
+      JSON.stringify({ entries, chat }),
     );
-  }, [entries, chat, impactDone, hydrated]);
+  }, [entries, chat, hydrated]);
 
   useEffect(() => {
     if (composerOpen) textareaRef.current?.focus();
@@ -273,8 +236,15 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 2400);
   }
 
-  async function requestCoach(message: string, channel: "journal" | "chat") {
-    if (!integrationStatus.ready) return null;
+  async function requestCoach(
+    message: string,
+    channel: "journal" | "chat",
+    clientEntryId: string,
+  ) {
+    if (!integrationStatus.ready) {
+      showToast("Niet gesynchroniseerd — cloudsetup is nog onvolledig");
+      return null;
+    }
 
     const response = await fetch("/api/coach", {
       method: "POST",
@@ -283,20 +253,28 @@ export default function Home() {
         message,
         channel,
         occurredAt: new Date().toISOString(),
+        clientEntryId,
       }),
     });
 
     if (!response.ok) {
+      const failure = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
       if (response.status === 401) {
         showToast("Log opnieuw in om cloudopslag te gebruiken");
+      } else if (failure?.error === "DATABASE_SCHEMA_MISSING") {
+        showToast("Database is nog niet geïnitialiseerd");
       } else {
-        showToast("Entry lokaal bewaard; coach tijdelijk niet bereikbaar");
+        showToast("Niet gesynchroniseerd — probeer opnieuw");
       }
       return null;
     }
 
     return response.json() as Promise<{
-      coach: { reply: string; intervention: string };
+      entry: { id: string; occurred_at: string };
+      coach: { reply: string; intervention: string } | null;
+      warning?: string;
     }>;
   }
 
@@ -304,29 +282,104 @@ export default function Home() {
     event.preventDefault();
     const text = draft.trim();
     if (!text) return;
+    const clientId = crypto.randomUUID();
     setEntries((current) => [
       ...current,
-      { id: crypto.randomUUID(), time: nowTime(), text, kind: "note" },
+      {
+        id: clientId,
+        clientId,
+        time: nowTime(),
+        text,
+        kind: "note",
+        syncState: integrationStatus.ready ? "pending" : "local",
+      },
     ]);
     setDraft("");
     setComposerOpen(false);
     showToast(
-      integrationStatus.ready ? "Entry wordt veilig verwerkt…" : "Entry lokaal bewaard",
+      integrationStatus.ready
+        ? "Entry wordt veilig verwerkt…"
+        : "Alleen op dit toestel bewaard",
     );
 
-    const result = await requestCoach(text, "journal");
-    if (result?.coach.reply) {
+    const result = await requestCoach(text, "journal", clientId);
+    if (!result) {
+      setEntries((current) =>
+        current.map((entry) =>
+          entry.clientId === clientId
+            ? { ...entry, syncState: "failed" }
+            : entry,
+        ),
+      );
+      return;
+    }
+
+    setEntries((current) =>
+      current.map((entry) =>
+        entry.clientId === clientId
+          ? { ...entry, id: result.entry.id, syncState: "synced" }
+          : entry,
+      ),
+    );
+
+    const coachReply = result.coach?.reply;
+    if (coachReply) {
       setEntries((current) => [
         ...current,
         {
           id: crypto.randomUUID(),
           time: nowTime(),
-          text: result.coach.reply,
+          text: coachReply,
           kind: "coach",
         },
       ]);
       showToast("Entry en coachfeedback bewaard");
+    } else if (result.warning) {
+      showToast("Entry bewaard; coachfeedback volgt later");
     }
+  }
+
+  async function retryEntry(entry: JournalEntry) {
+    const clientId = entry.clientId ?? entry.id;
+    setEntries((current) =>
+      current.map((item) =>
+        item.id === entry.id ? { ...item, syncState: "pending" } : item,
+      ),
+    );
+
+    const result = await requestCoach(entry.text, "journal", clientId);
+    if (!result) {
+      setEntries((current) =>
+        current.map((item) =>
+          item.id === entry.id ? { ...item, syncState: "failed" } : item,
+        ),
+      );
+      return;
+    }
+
+    setEntries((current) =>
+      current.map((item) =>
+        item.id === entry.id
+          ? { ...item, id: result.entry.id, syncState: "synced" }
+          : item,
+      ),
+    );
+
+    if (result.coach?.reply) {
+      setEntries((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          time: nowTime(),
+          text: result.coach!.reply,
+          kind: "coach",
+          syncState: "synced",
+        },
+      ]);
+    }
+    showToast(
+      result.coach ? "Entry en coachfeedback gesynchroniseerd" : "Entry gesynchroniseerd",
+    );
   }
 
   async function toggleVoice() {
@@ -348,8 +401,19 @@ export default function Home() {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      });
+      const preferredMimeType = chooseRecorderMimeType((mimeType) =>
+        MediaRecorder.isTypeSupported(mimeType),
+      );
+      const recorder = new MediaRecorder(
+        stream,
+        preferredMimeType ? { mimeType: preferredMimeType } : undefined,
+      );
       mediaStreamRef.current = stream;
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
@@ -361,29 +425,50 @@ export default function Home() {
       recorder.addEventListener("stop", async () => {
         setTranscribing(true);
         mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+        const mimeType =
+          recorder.mimeType ||
+          audioChunksRef.current.find((chunk) => chunk.type)?.type ||
+          preferredMimeType;
         const audio = new Blob(audioChunksRef.current, {
-          type: recorder.mimeType || "audio/webm",
+          type: mimeType,
         });
+        const filename = getAudioFilename(mimeType);
+        if (!filename || audio.size < 256) {
+          setTranscribing(false);
+          showToast("Opname was te kort of leeg — probeer opnieuw");
+          return;
+        }
         const formData = new FormData();
-        formData.append("audio", audio, "northstar-entry.webm");
+        formData.append("audio", audio, filename);
 
         try {
           const response = await fetch("/api/transcribe", {
             method: "POST",
             body: formData,
           });
-          if (!response.ok) throw new Error("TRANSCRIPTION_FAILED");
+          if (!response.ok) {
+            const failure = (await response.json().catch(() => null)) as {
+              message?: string;
+            } | null;
+            throw new Error(
+              failure?.message ?? "Transcriptie mislukt; probeer opnieuw",
+            );
+          }
           const result = (await response.json()) as { text: string };
           setDraft(result.text);
           showToast("Spraak omgezet naar tekst");
-        } catch {
-          showToast("Transcriptie mislukt; probeer opnieuw");
+        } catch (error) {
+          showToast(
+            error instanceof Error
+              ? error.message
+              : "Transcriptie mislukt; probeer opnieuw",
+          );
         } finally {
           setTranscribing(false);
         }
       });
 
-      recorder.start();
+      recorder.start(1000);
       setListening(true);
     } catch {
       showToast("Geef microfoontoegang om in te spreken");
@@ -419,31 +504,22 @@ export default function Home() {
     ]);
     setChatDraft("");
 
-    const result = await requestCoach(text, "chat");
-    if (result?.coach.reply) {
+    const result = await requestCoach(text, "chat", crypto.randomUUID());
+    const coachReply = result?.coach?.reply;
+    if (coachReply) {
       setChat((current) => [
         ...current,
         {
           id: crypto.randomUUID(),
           role: "coach",
           time: nowTime(),
-          text: result.coach.reply,
+          text: coachReply,
         },
       ]);
       return;
     }
 
-    window.setTimeout(() => {
-      setChat((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          role: "coach",
-          time: nowTime(),
-          text: "Ik hoor je. Wat is nu de eerlijkste volgende actie die binnen twintig minuten echte vooruitgang oplevert?",
-        },
-      ]);
-    }, 450);
+    showToast("Coach kon niet antwoorden; je bericht blijft lokaal bewaard");
   }
 
   return (
@@ -488,24 +564,34 @@ export default function Home() {
           </button>
         </header>
 
+        {hydrated && !integrationStatus.ready && (
+          <div className="system-banner" role="status">
+            <CloudOff size={17} aria-hidden="true" />
+            <span>
+              <strong>Alleen lokaal</strong>
+              {integrationStatus.issues.includes("DATABASE_SCHEMA_MISSING")
+                ? "Database-initialisatie ontbreekt."
+                : "Cloud en coach zijn nog niet volledig beschikbaar."}
+            </span>
+          </div>
+        )}
+
         <div className="view-container" key={tab}>
           {tab === "today" && (
             <TodayView
               date={date}
               entries={entries}
-              impactDone={impactDone}
-              onImpact={() => {
-                setImpactDone((current) => !current);
-                showToast(impactDone ? "Impact move heropend" : "Sterk. Afgerond.");
-              }}
+              coachReady={integrationStatus.ready}
               onCompose={() => setComposerOpen(true)}
               onCoach={() => setTab("coach")}
               onEvening={() => setTab("evening")}
+              onRetry={(entry) => void retryEntry(entry)}
             />
           )}
           {tab === "coach" && (
             <CoachView
               messages={chat}
+              active={integrationStatus.ready}
               draft={chatDraft}
               setDraft={setChatDraft}
               onSubmit={sendChat}
@@ -617,7 +703,7 @@ export default function Home() {
             <div className="menu-status">
               <span>Coachstatus</span>
               <strong>
-                <i /> {integrationStatus.ready ? "Live" : "Demo"}
+                <i /> {integrationStatus.ready ? "Actief" : "Actie nodig"}
               </strong>
             </div>
             <div
@@ -630,6 +716,21 @@ export default function Home() {
               <span>Supabase</span>
               <span>
                 <i /> {integrationStatus.supabase ? "Gekoppeld" : "Setup nodig"}
+              </span>
+            </div>
+            <div
+              className={
+                integrationStatus.schemaReady
+                  ? "integration-row ready"
+                  : "integration-row"
+              }
+            >
+              <span>Database</span>
+              <span>
+                <i />{" "}
+                {integrationStatus.schemaReady
+                  ? "Operationeel"
+                  : "Migratie nodig"}
               </span>
             </div>
             <div
@@ -670,123 +771,100 @@ export default function Home() {
 function TodayView({
   date,
   entries,
-  impactDone,
-  onImpact,
+  coachReady,
   onCompose,
   onCoach,
   onEvening,
+  onRetry,
 }: {
   date: string;
   entries: JournalEntry[];
-  impactDone: boolean;
-  onImpact: () => void;
+  coachReady: boolean;
   onCompose: () => void;
   onCoach: () => void;
   onEvening: () => void;
+  onRetry: (entry: JournalEntry) => void;
 }) {
   return (
     <div className="page today-page">
       <div className="date-row">
         <span>{date}</span>
         <span className="day-state">
-          <i /> Dag actief
+          <i className={coachReady ? "" : "offline"} />{" "}
+          {coachReady ? "Coach actief" : "Alleen lokaal"}
         </span>
       </div>
 
       <section className="welcome">
-        <p>Goedemiddag, Ward.</p>
-        <h1>
-          Wat verdient vandaag
-          <br />
-          je <em>volle aandacht?</em>
-        </h1>
+        <h1>Vandaag</h1>
+        <p>
+          Leg vast wat er gebeurt. Northstar verbindt je entries met je doelen
+          en patronen.
+        </p>
       </section>
 
-      <section className={impactDone ? "impact-block done" : "impact-block"}>
-        <div className="impact-topline">
-          <span>
-            <Target size={15} /> Impact move
-          </span>
-          <button aria-label="Meer opties">
-            <MoreHorizontal size={20} />
-          </button>
-        </div>
-        <button className="impact-action" onClick={onImpact}>
-          <span className="impact-check">
-            {impactDone ? <Check size={17} /> : <Circle size={17} />}
-          </span>
-          <span>
-            Voorstel voor de nieuwe klant afronden en versturen
-            <small>Omzet · Vandaag voor 16:00</small>
-          </span>
+      <div className="capture-actions">
+        <button className="capture-primary" onClick={onCompose}>
+          <Plus size={18} />
+          Nieuwe entry
         </button>
-      </section>
-
-      <section className="signals">
-        <div>
-          <span className="signal-icon sleep">
-            <Moon size={18} />
-          </span>
-          <p>
-            Slaap <strong>6u 42</strong>
-          </p>
-          <small>Onder je doel</small>
-        </div>
-        <div>
-          <span className="signal-icon movement">
-            <Dumbbell size={18} />
-          </span>
-          <p>
-            Beweging <strong>—</strong>
-          </p>
-          <small>Gym om 18:30</small>
-        </div>
-        <div>
-          <span className="signal-icon balance">
-            <Leaf size={18} />
-          </span>
-          <p>
-            Balans <strong>3d</strong>
-          </p>
-          <small>Op koers</small>
-        </div>
-      </section>
-
-      <section className="coach-nudge">
-        <div className="coach-orb">
-          <Sparkles size={18} />
-        </div>
-        <div>
-          <span>Northstar ziet iets</span>
-          <p>
-            Je verschuift naar kleine taken terwijl het voorstel nog openstaat.
-            Dat is geen planning, dat is uitstel.
-          </p>
-          <button onClick={onCoach}>
-            Bespreek dit <ChevronRight size={16} />
-          </button>
-        </div>
-      </section>
+        <button onClick={onCoach}>
+          <MessageCircle size={18} />
+          Praat met coach
+        </button>
+      </div>
 
       <section className="timeline">
         <div className="section-heading">
-          <h2>Vandaag</h2>
-          <button onClick={onCompose}>
-            <Plus size={17} /> Entry
-          </button>
+          <h2>Entries</h2>
+          <span>{entries.length}</span>
         </div>
-        <div className="timeline-list">
-          {entries.map((entry, index) => (
-            <article className={`timeline-entry ${entry.kind}`} key={entry.id}>
-              <div className="timeline-time">{entry.time}</div>
-              <div className="timeline-node">
-                <span />
-                {index < entries.length - 1 && <i />}
-              </div>
-              <p>{entry.text}</p>
-            </article>
-          ))}
-        </div>
+        {entries.length ? (
+          <div className="timeline-list">
+            {entries.map((entry, index) => (
+              <article className={`timeline-entry ${entry.kind}`} key={entry.id}>
+                <div className="timeline-time">{entry.time}</div>
+                <div className="timeline-node">
+                  <span />
+                  {index < entries.length - 1 && <i />}
+                </div>
+                <div className="timeline-content">
+                  <p>{entry.text}</p>
+                  {entry.kind !== "coach" &&
+                    entry.syncState &&
+                    entry.syncState !== "synced" && (
+                      <button
+                        className="sync-action"
+                        onClick={() => onRetry(entry)}
+                        disabled={
+                          entry.syncState === "pending" || !coachReady
+                        }
+                      >
+                        {entry.syncState === "pending" ? (
+                          <>
+                            <RefreshCw size={12} />
+                            Synchroniseren…
+                          </>
+                        ) : (
+                          <>
+                            <CloudOff size={12} />
+                            {coachReady
+                              ? "Synchroniseer opnieuw"
+                              : "Alleen op dit toestel"}
+                          </>
+                        )}
+                      </button>
+                    )}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state">
+            <p>Nog geen entries vandaag.</p>
+            <span>Een korte, eerlijke notitie is genoeg om te beginnen.</span>
+          </div>
+        )}
       </section>
 
       <button className="evening-banner" onClick={onEvening}>
@@ -800,21 +878,19 @@ function TodayView({
         <ChevronRight size={19} />
       </button>
 
-      <button className="floating-compose" onClick={onCompose}>
-        <Plus size={22} />
-        Nieuwe entry
-      </button>
     </div>
   );
 }
 
 function CoachView({
   messages,
+  active,
   draft,
   setDraft,
   onSubmit,
 }: {
   messages: ChatMessage[];
+  active: boolean;
   draft: string;
   setDraft: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
@@ -829,29 +905,37 @@ function CoachView({
           <span className="eyebrow">Personal life guide</span>
           <h1>Northstar</h1>
         </div>
-        <span className="online-dot">actief</span>
-      </div>
-
-      <div className="coach-focus">
-        <span>Huidige focus</span>
-        <strong>Voorstel versturen vóór 16:00</strong>
+        <span className={active ? "online-dot" : "online-dot offline"}>
+          {active ? "actief" : "offline"}
+        </span>
       </div>
 
       <div className="chat-stream">
         <div className="chat-date">Vandaag</div>
-        {messages.map((message) => (
-          <div className={`message ${message.role}`} key={message.id}>
-            {message.role === "coach" && (
-              <div className="message-avatar">
-                <Sparkles size={13} />
+        {messages.length ? (
+          messages.map((message) => (
+            <div className={`message ${message.role}`} key={message.id}>
+              {message.role === "coach" && (
+                <div className="message-avatar">
+                  <Sparkles size={13} />
+                </div>
+              )}
+              <div>
+                <p>{message.text}</p>
+                <span>{message.time}</span>
               </div>
-            )}
-            <div>
-              <p>{message.text}</p>
-              <span>{message.time}</span>
             </div>
+          ))
+        ) : (
+          <div className="coach-empty">
+            <h2>{active ? "Waar wil je scherpte op?" : "Coach niet actief"}</h2>
+            <p>
+              {active
+                ? "Vraag om reflectie, een eerlijke reality check of een concrete volgende stap."
+                : "Je berichten blijven op dit toestel tot de cloudsetup voltooid is."}
+            </p>
           </div>
-        ))}
+        )}
       </div>
 
       <form className="chat-composer" onSubmit={onSubmit}>
@@ -862,8 +946,14 @@ function CoachView({
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder="Praat met je coach…"
+          disabled={!active}
         />
-        <button type="submit" className="chat-send" aria-label="Verstuur">
+        <button
+          type="submit"
+          className="chat-send"
+          aria-label="Verstuur"
+          disabled={!active || !draft.trim()}
+        >
           <Send size={17} />
         </button>
       </form>
@@ -1015,107 +1105,25 @@ function EveningView({
 }
 
 function ProgressView() {
-  const bars = [54, 66, 42, 78, 72, 86, 64];
   return (
     <div className="page progress-page">
       <div className="page-title">
-        <span className="eyebrow">Laatste 7 dagen</span>
+        <span className="eyebrow">Trends</span>
         <h1>Progress</h1>
-        <p>Niet perfect. Wel steeds duidelijker.</p>
+        <p>Northstar toont pas conclusies wanneer er genoeg echte data is.</p>
       </div>
 
-      <section className="impact-score">
-        <div>
-          <span>Impactscore</span>
-          <strong>72</strong>
-          <small>
-            <ArrowUp size={14} /> 8 punten
-          </small>
+      <section className="empty-state progress-empty">
+        <div className="empty-state-icon">
+          <BarChart3 size={20} />
         </div>
-        <div className="bar-chart" aria-label="Impactscore per dag">
-          {bars.map((height, index) => (
-            <span key={index}>
-              <i style={{ height: `${height}%` }} />
-              <small>{"MDWDDVZ"[index]}</small>
-            </span>
-          ))}
-        </div>
-      </section>
-
-      <section className="metric-list">
-        <MetricRow
-          icon={BriefcaseBusiness}
-          label="Impact moves"
-          value="4 / 5"
-          detail="Eén dag verloren aan busywork"
-          progress={80}
-        />
-        <MetricRow
-          icon={Moon}
-          label="Gemiddelde slaap"
-          value="6u 51"
-          detail="Doel: 7u 30"
-          progress={73}
-        />
-        <MetricRow
-          icon={Leaf}
-          label="Cannabisvrije dagen"
-          value="3 dagen"
-          detail="Langste reeks deze maand"
-          progress={60}
-        />
-        <MetricRow
-          icon={Dumbbell}
-          label="Trainingen"
-          value="2 / 3"
-          detail="Nog één sessie gepland"
-          progress={66}
-        />
-      </section>
-
-      <section className="pattern-note">
-        <Flame size={18} />
-        <div>
-          <span>Voorlopig patroon</span>
-          <p>
-            Op dagen met beweging rapporteer je gemiddeld <strong>1,4 punt</strong>{" "}
-            meer energie.
-          </p>
-        </div>
+        <h2>Nog niet genoeg data</h2>
+        <p>
+          Blijf dagelijks schrijven en sluit je dag af. Na enkele dagen worden
+          trends in impact, slaap, beweging en cannabisgebruik zichtbaar.
+        </p>
       </section>
     </div>
-  );
-}
-
-function MetricRow({
-  icon: Icon,
-  label,
-  value,
-  detail,
-  progress,
-}: {
-  icon: typeof Moon;
-  label: string;
-  value: string;
-  detail: string;
-  progress: number;
-}) {
-  return (
-    <article className="metric-row">
-      <div className="metric-icon">
-        <Icon size={19} />
-      </div>
-      <div className="metric-copy">
-        <div>
-          <span>{label}</span>
-          <strong>{value}</strong>
-        </div>
-        <p>{detail}</p>
-        <i>
-          <b style={{ width: `${progress}%` }} />
-        </i>
-      </div>
-    </article>
   );
 }
 
@@ -1128,54 +1136,20 @@ function MemoryView({ onToast }: { onToast: (message: string) => void }) {
         <p>Wat Northstar over jou weet en gebruikt.</p>
       </div>
 
-      <div className="memory-summary">
-        <div>
-          <strong>24</strong>
-          <span>herinneringen</span>
+      <section className="empty-state memory-empty">
+        <div className="empty-state-icon">
+          <Brain size={20} />
         </div>
-        <div>
-          <strong>6</strong>
-          <span>actieve doelen</span>
-        </div>
-        <div>
-          <strong>3</strong>
-          <span>patronen</span>
-        </div>
-      </div>
-
-      <section className="memory-list">
-        <div className="section-heading">
-          <h2>Belangrijkste context</h2>
-          <button>
-            Alles <ChevronRight size={16} />
-          </button>
-        </div>
-        {MEMORY_ITEMS.map((item) => (
-          <article className="memory-item" key={item.title}>
-            <div className="memory-icon">
-              <item.icon size={18} />
-            </div>
-            <div>
-              <span>{item.category}</span>
-              <h3>{item.title}</h3>
-              <p>{item.detail}</p>
-              <small>
-                <Check size={12} /> {item.confidence}
-              </small>
-            </div>
-            <button
-              aria-label={`${item.title} aanpassen`}
-              onClick={() => onToast("Bewerken komt in de volgende iteratie")}
-            >
-              <MoreHorizontal size={19} />
-            </button>
-          </article>
-        ))}
+        <h2>Memory wordt zorgvuldig opgebouwd</h2>
+        <p>
+          Terugkerende doelen, voorkeuren en patronen verschijnen hier pas
+          nadat Northstar voldoende bewijs heeft. Geen verzonnen inzichten.
+        </p>
       </section>
 
       <button
         className="outline-button"
-        onClick={() => onToast("Memory review gepland")}
+        onClick={() => onToast("Er zijn nog geen memories om te reviewen")}
       >
         <Brain size={18} />
         Review wat Northstar weet

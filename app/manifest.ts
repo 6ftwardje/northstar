@@ -8,8 +8,8 @@ export default function manifest(): MetadataRoute.Manifest {
       "Een actieve AI-coach voor impact, gezondheid en een beter leven.",
     start_url: "/",
     display: "standalone",
-    background_color: "#f3f1e9",
-    theme_color: "#11120f",
+    background_color: "#f5f5f7",
+    theme_color: "#f5f5f7",
     orientation: "portrait",
     lang: "nl",
     icons: [
