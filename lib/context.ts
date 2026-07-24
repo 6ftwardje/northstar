@@ -23,6 +23,11 @@ export type MemoryRecord = {
 };
 
 export type ContextInput = {
+  profile?: {
+    displayName: string;
+    timezone: string;
+    coachSettings: Record<string, unknown>;
+  };
   currentEntry: string;
   todaysEntries: Array<{ id: string; createdAt: string; content: string }>;
   recentSummaries: Array<{ date: string; content: string }>;
@@ -32,6 +37,7 @@ export type ContextInput = {
 };
 
 export type CompiledContext = {
+  profile?: ContextInput["profile"];
   currentEntry: string;
   today: ContextInput["todaysEntries"];
   recentSummaries: ContextInput["recentSummaries"];
@@ -66,6 +72,7 @@ export function compileCoachContext(input: ContextInput): CompiledContext {
     .slice(0, 12);
 
   return {
+    profile: input.profile,
     currentEntry: input.currentEntry,
     today: input.todaysEntries.slice(-20),
     recentSummaries: input.recentSummaries.slice(-7),

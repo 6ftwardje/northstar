@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { featureStatus } from "@/lib/config";
+import {
+  localDateKey,
+  zonedDateTimeToUtc,
+} from "@/lib/notifications/time";
 import { createClient } from "@/lib/supabase/server";
 
 export async function GET() {
@@ -15,8 +19,17 @@ export async function GET() {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
 
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("timezone")
+    .eq("id", user.id)
+    .single();
+  const timezone = profile?.timezone ?? "Europe/Brussels";
+  const startOfToday = zonedDateTimeToUtc(
+    localDateKey(new Date(), timezone),
+    "00:00",
+    timezone,
+  );
 
   const { data, error } = await supabase
     .from("journal_entries")

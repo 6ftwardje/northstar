@@ -149,6 +149,7 @@ export async function POST(request: Request) {
       userId: user.id,
       entryId: entry.id,
       message: parsed.data.message,
+      channel: parsed.data.channel,
     });
 
     await supabase

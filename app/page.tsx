@@ -16,6 +16,8 @@ import {
   Check,
   ChevronRight,
   CloudOff,
+  Lightbulb,
+  LoaderCircle,
   Menu,
   MessageCircle,
   Mic,
@@ -23,10 +25,12 @@ import {
   Pause,
   Plus,
   RefreshCw,
+  RotateCcw,
   Send,
   Settings2,
   Sparkles,
   SunMedium,
+  UserRound,
   X,
 } from "lucide-react";
 import { NotificationSettings } from "@/app/notification-settings";
@@ -35,7 +39,7 @@ import {
   getAudioFilename,
 } from "@/lib/audio";
 
-type Tab = "today" | "coach" | "evening" | "progress" | "memory";
+type Tab = "today" | "coach" | "insights" | "profile" | "evening";
 type EntryKind = "note" | "coach" | "health" | "impact";
 
 type JournalEntry = {
@@ -49,9 +53,19 @@ type JournalEntry = {
 
 type ChatMessage = {
   id: string;
+  clientId?: string;
   role: "coach" | "user";
   text: string;
   time: string;
+  syncState?: "pending" | "sent" | "failed";
+};
+
+type UserProfile = {
+  displayName: string;
+  initials: string;
+  timezone: string;
+  eveningCheckInTime: string;
+  coachSettings: Record<string, unknown>;
 };
 
 type IntegrationStatus = {
@@ -79,9 +93,8 @@ const NAV_ITEMS: Array<{
 }> = [
   { id: "today", label: "Vandaag", icon: SunMedium },
   { id: "coach", label: "Coach", icon: MessageCircle },
-  { id: "evening", label: "Avond", icon: Moon },
-  { id: "progress", label: "Progress", icon: BarChart3 },
-  { id: "memory", label: "Memory", icon: Brain },
+  { id: "insights", label: "Insights", icon: BarChart3 },
+  { id: "profile", label: "Jij", icon: UserRound },
 ];
 
 const LEGACY_DEMO_ENTRY_IDS = new Set(["1", "2", "3"]);
@@ -107,8 +120,16 @@ export default function Home() {
   const [tab, setTab] = useState<Tab>("today");
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [chat, setChat] = useState<ChatMessage[]>([]);
+  const [profile, setProfile] = useState<UserProfile>({
+    displayName: "Northstar",
+    initials: "NS",
+    timezone: "Europe/Brussels",
+    eveningCheckInTime: "21:00:00",
+    coachSettings: {},
+  });
   const [draft, setDraft] = useState("");
   const [chatDraft, setChatDraft] = useState("");
+  const [coachResponding, setCoachResponding] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
@@ -182,19 +203,53 @@ export default function Home() {
           } | null,
         ) => {
           if (!result) return;
-          const cloudEntries: JournalEntry[] = (result.entries ?? []).map((entry) => ({
+          const rawEntries = result.entries ?? [];
+          const chatEntryIds = new Set(
+            rawEntries
+              .filter(
+                (entry) =>
+                  entry.kind !== "coach_message" &&
+                  entry.metadata?.channel === "chat",
+              )
+              .map((entry) => entry.id),
+          );
+          const isChatEntry = (entry: (typeof rawEntries)[number]) =>
+            entry.metadata?.channel === "chat" ||
+            (entry.kind === "coach_message" &&
+              typeof entry.metadata?.in_response_to === "string" &&
+              chatEntryIds.has(entry.metadata.in_response_to));
+          const formatTime = (occurredAt: string) =>
+            new Intl.DateTimeFormat("nl-BE", {
+              hour: "2-digit",
+              minute: "2-digit",
+            }).format(new Date(occurredAt));
+
+          const cloudEntries: JournalEntry[] = rawEntries
+            .filter((entry) => !isChatEntry(entry))
+            .map((entry) => ({
               id: entry.id,
-              time: new Intl.DateTimeFormat("nl-BE", {
-                hour: "2-digit",
-                minute: "2-digit",
-              }).format(new Date(entry.occurred_at)),
+              time: formatTime(entry.occurred_at),
               text: entry.content,
               kind: entry.kind === "coach_message" ? "coach" : "note",
               syncState: "synced",
             }));
+          const cloudChat: ChatMessage[] = rawEntries
+            .filter(isChatEntry)
+            .map((entry) => ({
+              id: entry.id,
+              clientId:
+                typeof entry.metadata?.client_entry_id === "string"
+                  ? entry.metadata.client_entry_id
+                  : undefined,
+              role: entry.kind === "coach_message" ? "coach" : "user",
+              text: entry.content,
+              time: formatTime(entry.occurred_at),
+              syncState: "sent",
+            }));
+
           setEntries((current) => {
             const cloudClientIds = new Set(
-              (result.entries ?? [])
+              rawEntries
                 .map((entry) => {
                   const metadata = entry.metadata;
                   return typeof metadata?.client_entry_id === "string"
@@ -210,6 +265,18 @@ export default function Home() {
                 !cloudClientIds.has(entry.clientId ?? entry.id),
             );
             return [...cloudEntries, ...localOnly];
+          });
+          setChat((current) => {
+            const cloudClientIds = new Set(
+              cloudChat.map((message) => message.clientId).filter(Boolean),
+            );
+            const unsynced = current.filter(
+              (message) =>
+                message.role === "user" &&
+                message.syncState !== "sent" &&
+                !cloudClientIds.has(message.clientId),
+            );
+            return [...cloudChat, ...unsynced];
           });
         },
       )
@@ -228,6 +295,41 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!integrationStatus.authenticated) return;
+    fetch("/api/profile")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((nextProfile: UserProfile | null) => {
+        if (nextProfile) setProfile(nextProfile);
+      })
+      .catch(() => {
+        // The fallback identity keeps the shell usable if profile loading fails.
+      });
+  }, [integrationStatus.authenticated]);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const updateViewport = () => {
+      const height = viewport?.height ?? window.innerHeight;
+      document.documentElement.style.setProperty(
+        "--app-viewport-height",
+        `${height}px`,
+      );
+      document.documentElement.dataset.keyboard =
+        viewport && viewport.height < window.innerHeight - 120
+          ? "open"
+          : "closed";
+    };
+    updateViewport();
+    viewport?.addEventListener("resize", updateViewport);
+    viewport?.addEventListener("scroll", updateViewport);
+    return () => {
+      viewport?.removeEventListener("resize", updateViewport);
+      viewport?.removeEventListener("scroll", updateViewport);
+      delete document.documentElement.dataset.keyboard;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!hydrated) return;
     localStorage.setItem(
       "northstar-state",
@@ -243,14 +345,14 @@ export default function Home() {
     const params = new URLSearchParams(window.location.search);
     const requestedView = params.get("view");
     const frame = window.requestAnimationFrame(() => {
-      if (
-        requestedView === "today" ||
-        requestedView === "coach" ||
-        requestedView === "evening" ||
-        requestedView === "progress" ||
-        requestedView === "memory"
-      ) {
+      if (requestedView === "today" || requestedView === "coach") {
         setTab(requestedView);
+      } else if (requestedView === "evening") {
+        setTab("evening");
+      } else if (requestedView === "progress") {
+        setTab("insights");
+      } else if (requestedView === "memory") {
+        setTab("profile");
       }
       if (params.get("compose") === "1") {
         setComposerOpen(true);
@@ -412,7 +514,7 @@ export default function Home() {
     );
   }
 
-  async function toggleVoice() {
+  async function toggleVoice(target: "journal" | "chat" = "journal") {
     if (listening && mediaRecorderRef.current) {
       mediaRecorderRef.current.stop();
       setListening(false);
@@ -422,9 +524,10 @@ export default function Home() {
     if (!integrationStatus.ready) {
       setListening(true);
       window.setTimeout(() => {
-        setDraft(
-          "Ik heb net een uur gefocust gewerkt. De pricing staat goed, maar ik stel het versturen nog uit.",
-        );
+        const demoText =
+          "Ik heb net een uur gefocust gewerkt. De pricing staat goed, maar ik stel het versturen nog uit.";
+        if (target === "chat") setChatDraft(demoText);
+        else setDraft(demoText);
         setListening(false);
       }, 1800);
       return;
@@ -485,7 +588,8 @@ export default function Home() {
             );
           }
           const result = (await response.json()) as { text: string };
-          setDraft(result.text);
+          if (target === "chat") setChatDraft(result.text);
+          else setDraft(result.text);
           showToast("Spraak omgezet naar tekst");
         } catch (error) {
           showToast(
@@ -526,30 +630,112 @@ export default function Home() {
   async function sendChat(event: FormEvent) {
     event.preventDefault();
     const text = chatDraft.trim();
-    if (!text) return;
+    if (!text || coachResponding) return;
     const time = nowTime();
+    const clientId = crypto.randomUUID();
     setChat((current) => [
       ...current,
-      { id: crypto.randomUUID(), role: "user", text, time },
+      {
+        id: clientId,
+        clientId,
+        role: "user",
+        text,
+        time,
+        syncState: "pending",
+      },
     ]);
     setChatDraft("");
+    setCoachResponding(true);
 
-    const result = await requestCoach(text, "chat", crypto.randomUUID());
-    const coachReply = result?.coach?.reply;
-    if (coachReply) {
-      setChat((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          role: "coach",
-          time: nowTime(),
-          text: coachReply,
-        },
-      ]);
-      return;
+    try {
+      const result = await requestCoach(text, "chat", clientId);
+      if (!result) {
+        setChat((current) =>
+          current.map((message) =>
+            message.clientId === clientId
+              ? { ...message, syncState: "failed" }
+              : message,
+          ),
+        );
+        return;
+      }
+
+      setChat((current) =>
+        current.map((message) =>
+          message.clientId === clientId
+            ? { ...message, id: result.entry.id, syncState: "sent" }
+            : message,
+        ),
+      );
+      if (result.coach?.reply) {
+        setChat((current) => [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            role: "coach",
+            time: nowTime(),
+            text: result.coach!.reply,
+            syncState: "sent",
+          },
+        ]);
+      } else {
+        showToast("Bericht bewaard; coachfeedback volgt later");
+      }
+    } catch {
+      setChat((current) =>
+        current.map((message) =>
+          message.clientId === clientId
+            ? { ...message, syncState: "failed" }
+            : message,
+        ),
+      );
+      showToast("Coach is tijdelijk niet bereikbaar");
+    } finally {
+      setCoachResponding(false);
     }
+  }
 
-    showToast("Coach kon niet antwoorden; je bericht blijft lokaal bewaard");
+  async function retryChat(message: ChatMessage) {
+    if (coachResponding || message.role !== "user") return;
+    const clientId = message.clientId ?? message.id;
+    setChat((current) =>
+      current.map((item) =>
+        item.id === message.id ? { ...item, syncState: "pending" } : item,
+      ),
+    );
+    setCoachResponding(true);
+    try {
+      const result = await requestCoach(message.text, "chat", clientId);
+      if (!result) throw new Error("COACH_RETRY_FAILED");
+      setChat((current) =>
+        current.map((item) =>
+          item.id === message.id
+            ? { ...item, id: result.entry.id, clientId, syncState: "sent" }
+            : item,
+        ),
+      );
+      if (result.coach?.reply) {
+        setChat((current) => [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            role: "coach",
+            time: nowTime(),
+            text: result.coach!.reply,
+            syncState: "sent",
+          },
+        ]);
+      }
+    } catch {
+      setChat((current) =>
+        current.map((item) =>
+          item.id === message.id ? { ...item, syncState: "failed" } : item,
+        ),
+      );
+      showToast("Opnieuw versturen is niet gelukt");
+    } finally {
+      setCoachResponding(false);
+    }
   }
 
   return (
@@ -572,7 +758,7 @@ export default function Home() {
         <button
           className="rail-button settings"
           aria-label="Instellingen"
-          onClick={() => setNotificationSettingsOpen(true)}
+          onClick={() => setTab("profile")}
         >
           <Settings2 size={21} strokeWidth={1.8} />
           <span>Instellingen</span>
@@ -592,9 +778,9 @@ export default function Home() {
           <button
             className="avatar"
             aria-label="Profiel"
-            onClick={() => setMenuOpen(true)}
+            onClick={() => setTab("profile")}
           >
-            WJ
+            {profile.initials}
           </button>
         </header>
 
@@ -610,7 +796,7 @@ export default function Home() {
           </div>
         )}
 
-        <div className="view-container" key={tab}>
+        <div className={`view-container view-${tab}`} key={tab}>
           {tab === "today" && (
             <TodayView
               date={date}
@@ -626,9 +812,14 @@ export default function Home() {
             <CoachView
               messages={chat}
               active={integrationStatus.ready}
+              responding={coachResponding}
+              listening={listening}
+              transcribing={transcribing}
               draft={chatDraft}
               setDraft={setChatDraft}
               onSubmit={sendChat}
+              onVoice={() => void toggleVoice("chat")}
+              onRetry={(message) => void retryChat(message)}
             />
           )}
           {tab === "evening" && (
@@ -636,8 +827,16 @@ export default function Home() {
               onComplete={(review) => void completeReview(review)}
             />
           )}
-          {tab === "progress" && <ProgressView />}
-          {tab === "memory" && <MemoryView onToast={showToast} />}
+          {tab === "insights" && <InsightsView entries={entries} />}
+          {tab === "profile" && (
+            <ProfileView
+              profile={profile}
+              onNotifications={() => setNotificationSettingsOpen(true)}
+              onMemory={() =>
+                showToast("Memory review komt in de volgende intelligence-release")
+              }
+            />
+          )}
         </div>
 
         <nav className="bottom-nav" aria-label="Mobiele navigatie">
@@ -735,57 +934,19 @@ export default function Home() {
               Zacht voor de mens.”
             </p>
             <div className="menu-status">
-              <span>Coachstatus</span>
+              <span>{profile.displayName}</span>
               <strong>
                 <i /> {integrationStatus.ready ? "Actief" : "Actie nodig"}
               </strong>
             </div>
-            <div
-              className={
-                integrationStatus.supabase
-                  ? "integration-row ready"
-                  : "integration-row"
-              }
+            <button
+              className="menu-row"
+              onClick={() => {
+                setMenuOpen(false);
+                setTab("profile");
+              }}
             >
-              <span>Supabase</span>
-              <span>
-                <i /> {integrationStatus.supabase ? "Gekoppeld" : "Setup nodig"}
-              </span>
-            </div>
-            <div
-              className={
-                integrationStatus.schemaReady
-                  ? "integration-row ready"
-                  : "integration-row"
-              }
-            >
-              <span>Database</span>
-              <span>
-                <i />{" "}
-                {integrationStatus.schemaReady
-                  ? "Operationeel"
-                  : "Migratie nodig"}
-              </span>
-            </div>
-            <div
-              className={
-                integrationStatus.openai
-                  ? "integration-row ready"
-                  : "integration-row"
-              }
-            >
-              <span>OpenAI</span>
-              <span>
-                <i /> {integrationStatus.openai ? "Gekoppeld" : "Setup nodig"}
-              </span>
-            </div>
-            <a className="menu-row" href="/login">
-              <CalendarDays size={20} />{" "}
-              {integrationStatus.authenticated ? "Account actief" : "Login & setup"}
-              <ChevronRight size={18} />
-            </a>
-            <button className="menu-row">
-              <Settings2 size={20} /> Coachinstellingen
+              <UserRound size={20} /> Profiel en instellingen
               <ChevronRight size={18} />
             </button>
             <button
@@ -796,6 +957,16 @@ export default function Home() {
               }}
             >
               <Bell size={20} /> Notificaties & dagritme
+              <ChevronRight size={18} />
+            </button>
+            <button
+              className="menu-row"
+              onClick={() => {
+                setMenuOpen(false);
+                setTab("insights");
+              }}
+            >
+              <BarChart3 size={20} /> Insights
               <ChevronRight size={18} />
             </button>
           </div>
@@ -935,33 +1106,56 @@ function TodayView({
 function CoachView({
   messages,
   active,
+  responding,
+  listening,
+  transcribing,
   draft,
   setDraft,
   onSubmit,
+  onVoice,
+  onRetry,
 }: {
   messages: ChatMessage[];
   active: boolean;
+  responding: boolean;
+  listening: boolean;
+  transcribing: boolean;
   draft: string;
   setDraft: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
+  onVoice: () => void;
+  onRetry: (message: ChatMessage) => void;
 }) {
+  const streamEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const prompts = [
+    "Geef me een eerlijke reality check",
+    "Wat is nu mijn hoogste-impactactie?",
+    "Help me mijn gedachten structureren",
+  ];
+
+  useEffect(() => {
+    streamEndRef.current?.scrollIntoView({ block: "end" });
+  }, [messages, responding]);
+
+  function selectPrompt(prompt: string) {
+    setDraft(prompt);
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
   return (
     <div className="page coach-page">
       <div className="coach-header">
-        <div className="coach-orb large">
-          <Sparkles size={21} />
+        <div className="coach-orb">
+          <Sparkles size={17} />
         </div>
         <div>
-          <span className="eyebrow">Personal life guide</span>
           <h1>Northstar</h1>
+          <span>{active ? "Klaar om mee te denken" : "Tijdelijk offline"}</span>
         </div>
-        <span className={active ? "online-dot" : "online-dot offline"}>
-          {active ? "actief" : "offline"}
-        </span>
       </div>
 
-      <div className="chat-stream">
-        <div className="chat-date">Vandaag</div>
+      <div className="chat-stream" aria-live="polite">
         {messages.length ? (
           messages.map((message) => (
             <div className={`message ${message.role}`} key={message.id}>
@@ -972,7 +1166,19 @@ function CoachView({
               )}
               <div>
                 <p>{message.text}</p>
-                <span>{message.time}</span>
+                <span className="message-meta">
+                  {message.time}
+                  {message.syncState === "pending" && (
+                    <>
+                      <LoaderCircle className="spin" size={11} /> Bezig…
+                    </>
+                  )}
+                  {message.syncState === "failed" && (
+                    <button type="button" onClick={() => onRetry(message)}>
+                      <RotateCcw size={11} /> Opnieuw
+                    </button>
+                  )}
+                </span>
               </div>
             </div>
           ))
@@ -984,27 +1190,81 @@ function CoachView({
                 ? "Vraag om reflectie, een eerlijke reality check of een concrete volgende stap."
                 : "Je berichten blijven op dit toestel tot de cloudsetup voltooid is."}
             </p>
+            {active && (
+              <div className="coach-prompts">
+                {prompts.map((prompt) => (
+                  <button
+                    type="button"
+                    key={prompt}
+                    onClick={() => selectPrompt(prompt)}
+                  >
+                    <Lightbulb size={15} />
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
+        {responding && (
+          <div className="message coach coach-typing">
+            <div className="message-avatar">
+              <Sparkles size={13} />
+            </div>
+            <div className="typing-dots" aria-label="Northstar denkt na">
+              <i />
+              <i />
+              <i />
+            </div>
+          </div>
+        )}
+        <div ref={streamEndRef} />
       </div>
 
       <form className="chat-composer" onSubmit={onSubmit}>
-        <button type="button" aria-label="Inspreken">
-          <Mic size={19} />
+        <button
+          type="button"
+          className={listening ? "chat-voice is-listening" : "chat-voice"}
+          aria-label={listening ? "Opname stoppen" : "Inspreken"}
+          onClick={onVoice}
+          disabled={!active || transcribing || responding}
+        >
+          {listening ? <Pause size={19} /> : <Mic size={19} />}
         </button>
-        <input
+        <textarea
+          ref={inputRef}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="Praat met je coach…"
+          onInput={(event) => {
+            event.currentTarget.style.height = "auto";
+            event.currentTarget.style.height = `${Math.min(
+              event.currentTarget.scrollHeight,
+              112,
+            )}px`;
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
+          placeholder={
+            transcribing ? "Spraak omzetten…" : "Vraag Northstar om scherpte…"
+          }
+          rows={1}
           disabled={!active}
         />
         <button
           type="submit"
           className="chat-send"
           aria-label="Verstuur"
-          disabled={!active || !draft.trim()}
+          disabled={!active || !draft.trim() || responding}
         >
-          <Send size={17} />
+          {responding ? (
+            <LoaderCircle className="spin" size={17} />
+          ) : (
+            <Send size={17} />
+          )}
         </button>
       </form>
     </div>
@@ -1154,59 +1414,108 @@ function EveningView({
   );
 }
 
-function ProgressView() {
+function InsightsView({ entries }: { entries: JournalEntry[] }) {
+  const humanEntries = entries.filter((entry) => entry.kind !== "coach").length;
+  const progress = Math.min(100, Math.round((humanEntries / 7) * 100));
+
   return (
-    <div className="page progress-page">
+    <div className="page insights-page">
       <div className="page-title">
-        <span className="eyebrow">Trends</span>
-        <h1>Progress</h1>
-        <p>Northstar toont pas conclusies wanneer er genoeg echte data is.</p>
+        <span className="eyebrow">Leren uit je dagen</span>
+        <h1>Insights</h1>
+        <p>
+          Northstar toont alleen patronen die door voldoende echte entries
+          worden ondersteund.
+        </p>
       </div>
 
-      <section className="empty-state progress-empty">
-        <div className="empty-state-icon">
-          <BarChart3 size={20} />
+      <section className="insight-readiness">
+        <div>
+          <span>Databasis</span>
+          <strong>
+            {humanEntries < 7
+              ? `${humanEntries} van 7 entries`
+              : "Eerste analyse beschikbaar"}
+          </strong>
         </div>
-        <h2>Nog niet genoeg data</h2>
+        <div className="readiness-track" aria-label={`${progress}% opgebouwd`}>
+          <i style={{ width: `${progress}%` }} />
+        </div>
         <p>
-          Blijf dagelijks schrijven en sluit je dag af. Na enkele dagen worden
-          trends in impact, slaap, beweging en cannabisgebruik zichtbaar.
+          {humanEntries < 7
+            ? "Blijf kort en eerlijk vastleggen. We wachten liever dan een patroon te verzinnen."
+            : "De intelligence-release maakt hiervan een onderbouwd weekrapport."}
         </p>
       </section>
+
+      <div className="insight-list">
+        <div>
+          <BarChart3 size={18} />
+          <span>
+            <strong>Weekrapport</strong>
+            <small>Impact, health en terugkerend gedrag</small>
+          </span>
+          <span className="coming-label">Binnenkort</span>
+        </div>
+        <div>
+          <CalendarDays size={18} />
+          <span>
+            <strong>Terugblik</strong>
+            <small>Vergelijk vandaag met eerdere momenten</small>
+          </span>
+          <span className="coming-label">Binnenkort</span>
+        </div>
+      </div>
     </div>
   );
 }
 
-function MemoryView({ onToast }: { onToast: (message: string) => void }) {
+function ProfileView({
+  profile,
+  onNotifications,
+  onMemory,
+}: {
+  profile: UserProfile;
+  onNotifications: () => void;
+  onMemory: () => void;
+}) {
   return (
-    <div className="page memory-page">
-      <div className="page-title">
-        <span className="eyebrow">Jouw context</span>
-        <h1>Memory</h1>
-        <p>Wat Northstar over jou weet en gebruikt.</p>
+    <div className="page profile-page">
+      <div className="profile-heading">
+        <span className="profile-avatar">{profile.initials}</span>
+        <div>
+          <span className="eyebrow">Jouw Northstar</span>
+          <h1>{profile.displayName}</h1>
+          <p>{profile.timezone}</p>
+        </div>
       </div>
 
-      <section className="empty-state memory-empty">
-        <div className="empty-state-icon">
-          <Brain size={20} />
+      <section className="profile-section">
+        <h2>Instellingen</h2>
+        <div className="profile-list">
+          <button onClick={onNotifications}>
+            <Bell size={19} />
+            <span>
+              <strong>Notificaties & dagritme</strong>
+              <small>
+                Avondcheck-in om {profile.eveningCheckInTime.slice(0, 5)}
+              </small>
+            </span>
+            <ChevronRight size={18} />
+          </button>
+          <button onClick={onMemory}>
+            <Brain size={19} />
+            <span>
+              <strong>Wat Northstar weet</strong>
+              <small>Controleer en corrigeer je persoonlijke context</small>
+            </span>
+            <ChevronRight size={18} />
+          </button>
         </div>
-        <h2>Memory wordt zorgvuldig opgebouwd</h2>
-        <p>
-          Terugkerende doelen, voorkeuren en patronen verschijnen hier pas
-          nadat Northstar voldoende bewijs heeft. Geen verzonnen inzichten.
-        </p>
       </section>
 
-      <button
-        className="outline-button"
-        onClick={() => onToast("Er zijn nog geen memories om te reviewen")}
-      >
-        <Brain size={18} />
-        Review wat Northstar weet
-      </button>
       <p className="privacy-note">
-        Jij houdt controle. Iedere herinnering blijft herleidbaar, corrigeerbaar
-        en verwijderbaar.
+        Je journal, coachcontext en notificaties zijn per account gescheiden.
       </p>
     </div>
   );

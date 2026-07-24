@@ -2,6 +2,10 @@ import { zodTextFormat } from "openai/helpers/zod";
 import { appConfig } from "@/lib/config";
 import { compileCoachContext, type MemoryRecord } from "@/lib/context";
 import { createOpenAIClient } from "@/lib/openai/client";
+import {
+  localDateKey,
+  zonedDateTimeToUtc,
+} from "@/lib/notifications/time";
 import { createAdminSupabaseClient, createClient } from "@/lib/supabase/server";
 import { COACH_INSTRUCTIONS } from "./prompt";
 import { CoachOutputSchema, type CoachOutput } from "./schemas";
@@ -10,6 +14,7 @@ type GenerateCoachInput = {
   userId: string;
   entryId: string;
   message: string;
+  channel: "journal" | "chat";
 };
 
 type MemoryRow = {
@@ -47,11 +52,21 @@ export async function generateCoachResponse({
   userId,
   entryId,
   message,
+  channel,
 }: GenerateCoachInput): Promise<CoachOutput> {
   const supabase = await createClient();
   const admin = createAdminSupabaseClient();
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
+  const profileResult = await supabase
+    .from("profiles")
+    .select("display_name, timezone, coach_settings")
+    .eq("id", userId)
+    .single();
+  const timezone = profileResult.data?.timezone ?? "Europe/Brussels";
+  const startOfToday = zonedDateTimeToUtc(
+    localDateKey(new Date(), timezone),
+    "00:00",
+    timezone,
+  );
 
   const [entriesResult, memoriesResult, commitmentsResult, reviewsResult] =
     await Promise.all([
@@ -108,6 +123,12 @@ export async function generateCoachResponse({
   );
 
   const context = compileCoachContext({
+    profile: {
+      displayName: profileResult.data?.display_name ?? "Northstar-gebruiker",
+      timezone: profileResult.data?.timezone ?? "Europe/Brussels",
+      coachSettings:
+        (profileResult.data?.coach_settings as Record<string, unknown>) ?? {},
+    },
     currentEntry: message,
     todaysEntries: (entriesResult.data ?? []).map((entry) => ({
       id: entry.id,
@@ -154,6 +175,7 @@ export async function generateCoachResponse({
         intervention: output.intervention,
         observation: output.observation,
         in_response_to: entryId,
+        channel,
       },
     })
     .select("id")
