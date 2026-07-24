@@ -22,7 +22,7 @@ test("mobile app has no horizontal overflow", async ({ page }) => {
 });
 
 test("login can switch between PWA-safe methods", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/login");
 
   await expect(page.getByRole("heading", { name: /Welkom terug/ })).toBeVisible();
   await expect(page.getByRole("tab", { name: "E-mailcode" })).toHaveAttribute(
