@@ -26,6 +26,12 @@ export const appConfig = {
   vapidSubject:
     process.env.VAPID_SUBJECT ?? "https://northstar-ward.netlify.app",
   cronSecret: process.env.CRON_SECRET,
+  googleClientId: process.env.GOOGLE_CLIENT_ID,
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  googleCalendarRedirectUri:
+    process.env.GOOGLE_CALENDAR_REDIRECT_URI ??
+    `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/integrations/google/callback`,
+  calendarTokenEncryptionKey: process.env.CALENDAR_TOKEN_ENCRYPTION_KEY,
 };
 
 export const featureStatus = {
@@ -48,6 +54,14 @@ export const notificationFeatureStatus = {
     isUsable(appConfig.vapidPrivateKey) &&
     isUsable(appConfig.vapidSubject),
   cron: isUsable(appConfig.cronSecret),
+};
+
+export const calendarFeatureStatus = {
+  google:
+    isUsable(appConfig.googleClientId) &&
+    isUsable(appConfig.googleClientSecret) &&
+    isUsable(appConfig.googleCalendarRedirectUri) &&
+    isUsable(appConfig.calendarTokenEncryptionKey),
 };
 
 export function assertSupabaseConfigured() {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CoachCalendarProposalSchema } from "../calendar/schemas";
 
 export const CoachRequestSchema = z.object({
   message: z.string().trim().min(1).max(12_000),
@@ -46,6 +47,7 @@ export const CoachOutputSchema = z.object({
     })
     .nullable(),
   memoryCandidates: z.array(MemoryCandidateSchema).max(4),
+  calendarProposal: CoachCalendarProposalSchema,
 });
 
 export type CoachOutput = z.infer<typeof CoachOutputSchema>;

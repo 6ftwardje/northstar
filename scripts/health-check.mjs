@@ -72,6 +72,10 @@ for (const table of [
   "push_subscriptions",
   "scheduled_actions",
   "notification_deliveries",
+  "calendar_connections",
+  "calendar_sources",
+  "calendar_action_proposals",
+  "calendar_action_executions",
 ]) {
   await check(`Tabel ${table}`, async () => {
     const { error } = await supabase
@@ -80,6 +84,35 @@ for (const table of [
       .limit(1);
     if (error) throw error;
     return "schema beschikbaar";
+  });
+}
+
+const calendarKeys = [
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_CALENDAR_REDIRECT_URI",
+  "CALENDAR_TOKEN_ENCRYPTION_KEY",
+];
+const calendarValues = calendarKeys.map((key) => process.env[key]).filter(Boolean);
+if (calendarValues.length > 0) {
+  await check("Google Calendar-configuratie", async () => {
+    const missingCalendarKeys = calendarKeys.filter((key) => !process.env[key]);
+    if (missingCalendarKeys.length) {
+      throw new Error(`onvolledig: ${missingCalendarKeys.join(", ")}`);
+    }
+    const redirect = new URL(process.env.GOOGLE_CALENDAR_REDIRECT_URI);
+    if (
+      redirect.pathname !== "/api/integrations/google/callback" ||
+      !["https:", "http:"].includes(redirect.protocol)
+    ) {
+      throw new Error("callback-URL ongeldig");
+    }
+    const key = Buffer.from(
+      process.env.CALENDAR_TOKEN_ENCRYPTION_KEY,
+      "base64",
+    );
+    if (key.length !== 32) throw new Error("encryptiesleutel is niet 32 bytes");
+    return "OAuth en encryptiesleutel aanwezig";
   });
 }
 

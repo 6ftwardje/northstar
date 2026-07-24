@@ -5,6 +5,8 @@ import { appConfig, featureStatus } from "@/lib/config";
 const PUBLIC_PATHS = [
   "/login",
   "/auth/callback",
+  "/api/integrations/google/callback",
+  "/integrations/google/complete",
   "/api/status",
   "/api/notifications/dispatch",
   "/manifest.webmanifest",

@@ -1,5 +1,9 @@
 import { zodTextFormat } from "openai/helpers/zod";
 import { appConfig } from "@/lib/config";
+import {
+  createCalendarProposal,
+  upcomingCalendarContext,
+} from "@/lib/calendar/server";
 import { compileCoachContext, type MemoryRecord } from "@/lib/context";
 import { createOpenAIClient } from "@/lib/openai/client";
 import {
@@ -68,7 +72,13 @@ export async function generateCoachResponse({
     timezone,
   );
 
-  const [entriesResult, memoriesResult, commitmentsResult, reviewsResult] =
+  const [
+    entriesResult,
+    memoriesResult,
+    commitmentsResult,
+    reviewsResult,
+    calendarContext,
+  ] =
     await Promise.all([
       supabase
         .from("journal_entries")
@@ -96,6 +106,7 @@ export async function generateCoachResponse({
         .not("coach_summary", "is", null)
         .order("review_date", { ascending: false })
         .limit(7),
+      upcomingCalendarContext(userId),
     ]);
 
   const memories = ((memoriesResult.data ?? []) as MemoryRow[]).map(toMemory);
@@ -152,7 +163,13 @@ export async function generateCoachResponse({
   const response = await openai.responses.parse({
     model: appConfig.openaiModel,
     instructions: COACH_INSTRUCTIONS,
-    input: JSON.stringify(context),
+    input: JSON.stringify({
+      ...context,
+      calendar: {
+        connected: calendarContext.length > 0,
+        upcomingSevenDays: calendarContext,
+      },
+    }),
     reasoning: { effort: "medium" },
     text: {
       verbosity: "low",
@@ -163,6 +180,26 @@ export async function generateCoachResponse({
   const output = response.output_parsed;
   if (!output) {
     throw new Error("OPENAI_EMPTY_STRUCTURED_OUTPUT");
+  }
+
+  let calendarProposalId: string | null = null;
+  if (output.calendarProposal && calendarContext.length > 0) {
+    try {
+      const calendarProposal = await createCalendarProposal(userId, {
+        action: output.calendarProposal.action,
+        title: output.calendarProposal.title,
+        startsAt: output.calendarProposal.startsAt,
+        endsAt: output.calendarProposal.endsAt,
+        timezone: output.calendarProposal.timezone,
+        location: output.calendarProposal.location,
+        rationale: output.calendarProposal.rationale,
+        googleEventId: output.calendarProposal.existingEventId,
+        sourceEntryId: entryId,
+      });
+      calendarProposalId = calendarProposal.id;
+    } catch {
+      // Coaching remains useful when a calendar suggestion fails validation.
+    }
   }
 
   const { data: coachEntry, error: coachEntryError } = await admin
@@ -176,6 +213,7 @@ export async function generateCoachResponse({
         observation: output.observation,
         in_response_to: entryId,
         channel,
+        calendar_proposal_id: calendarProposalId,
       },
     })
     .select("id")
@@ -236,6 +274,7 @@ export async function generateCoachResponse({
       relevant_memory_count: context.relevantHistory.length,
       coach_entry_id: coachEntry.id,
       response_id: response.id,
+      calendar_proposal_id: calendarProposalId,
     },
     model: appConfig.openaiModel,
     prompt_version: "northstar-coach-v1",

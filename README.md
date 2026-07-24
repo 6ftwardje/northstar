@@ -16,6 +16,9 @@ gezondheid en duurzame gedragsverandering.
 - conditionele avond-follow-up die stopt zodra de review klaar is;
 - voorbereid Supabase-schema met Row Level Security;
 - pure context compiler voor reproduceerbare AI-context.
+- Google Calendar-context met per agenda instelbare leestoegang;
+- concrete agenda-voorstellen die pas na menselijke bevestiging worden
+  uitgevoerd.
 
 Zolang de cloud niet operationeel is, bewaart de app entries lokaal en toont
 ze geen verzonnen coachreacties. Na configuratie bewaart de API entries in Supabase,
@@ -44,6 +47,10 @@ CRON_SECRET
 NEXT_PUBLIC_VAPID_PUBLIC_KEY
 VAPID_PRIVATE_KEY
 VAPID_SUBJECT
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+GOOGLE_CALENDAR_REDIRECT_URI
+CALENDAR_TOKEN_ENCRYPTION_KEY
 ```
 
 Plaats secrets nooit in clientcomponenten of in git.
@@ -60,7 +67,8 @@ npm run check:setup
 2. Open **SQL Editor** en voer achtereenvolgens de volledige inhoud uit van
    `supabase/migrations/0001_initial.sql` en
    `supabase/migrations/0002_operational_hardening.sql` en
-   `supabase/migrations/0003_notification_loop.sql`.
+   `supabase/migrations/0003_notification_loop.sql` en
+   `supabase/migrations/0004_google_calendar.sql`.
 3. Kopieer bij **Project Settings → API** de project URL, publishable/anon key
    en service-role key naar `.env.local`.
 4. Zet bij **Authentication → URL Configuration**:
@@ -149,6 +157,52 @@ de weekreview.
    geïnstalleerde PWA en stuur een testmelding.
 
 De private VAPID-key en `CRON_SECRET` blijven uitsluitend server-side.
+
+## Google Calendar
+
+De integratie gebruikt Google OAuth met PKCE en bewaart access- en
+refresh-tokens uitsluitend server-side, versleuteld met AES-256-GCM. De coach
+ontvangt alleen begrensde eventgegevens uit de geselecteerde agenda’s:
+eventtitel, start, einde en locatie. Beschrijvingen worden niet doorgestuurd.
+
+1. Maak in Google Cloud een project en configureer het OAuth consent screen.
+2. Activeer **Google Calendar API**.
+3. Maak onder **Credentials** een OAuth client van het type **Web application**.
+4. Voeg exact deze Authorized redirect URI’s toe:
+
+   ```text
+   http://localhost:3000/api/integrations/google/callback
+   https://northstar-ward.netlify.app/api/integrations/google/callback
+   ```
+
+5. Plaats de client-ID en het client-secret in de gelijknamige
+   servervariabelen. Zet op productie:
+
+   ```text
+   GOOGLE_CALENDAR_REDIRECT_URI=https://northstar-ward.netlify.app/api/integrations/google/callback
+   ```
+
+6. Genereer één server-only encryptiesleutel:
+
+   ```bash
+   openssl rand -base64 32
+   ```
+
+   Plaats de uitvoer in `CALENDAR_TOKEN_ENCRYPTION_KEY`. Wijzig deze sleutel
+   niet zonder een tokenmigratie; bestaande koppelingen zijn er mee
+   versleuteld.
+
+7. Publiceer de OAuth-app voor de bedoelde testgebruikers. In Google OAuth
+   **Testing** kunnen refresh-tokens na korte tijd verlopen; gebruik die modus
+   alleen tijdens de beperkte testfase.
+
+Na configuratie opent iedere gebruiker onder **Jij → Google Calendar** zijn
+eigen beveiligde Google-flow. De gebruiker kiest welke agenda’s Northstar mag
+lezen en precies één beschrijfbare agenda voor voorstellen.
+
+Northstar verwijdert geen events, nodigt geen gasten uit en past geen
+terugkerende reeks aan. Updates met gasten, recurrence of een gewijzigde ETag
+worden geblokkeerd en moeten opnieuw worden beoordeeld.
 
 ## Kwaliteitscontrole
 

@@ -35,6 +35,11 @@ import {
 } from "lucide-react";
 import { NotificationSettings } from "@/app/notification-settings";
 import {
+  CalendarProposalCard,
+  type CalendarProposal,
+} from "@/app/calendar-proposal-card";
+import { CalendarSettings } from "@/app/calendar-settings";
+import {
   chooseRecorderMimeType,
   getAudioFilename,
 } from "@/lib/audio";
@@ -136,6 +141,10 @@ export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationSettingsOpen, setNotificationSettingsOpen] =
     useState(false);
+  const [calendarSettingsOpen, setCalendarSettingsOpen] = useState(false);
+  const [calendarProposals, setCalendarProposals] = useState<
+    CalendarProposal[]
+  >([]);
   const [toast, setToast] = useState("");
   const [integrationStatus, setIntegrationStatus] =
     useState<IntegrationStatus>({
@@ -408,6 +417,10 @@ export default function Home() {
       if (params.get("compose") === "1") {
         setComposerOpen(true);
       }
+      if (params.get("calendar") === "return") {
+        setTab("profile");
+        setCalendarSettingsOpen(true);
+      }
     });
     return () => window.cancelAnimationFrame(frame);
   }, []);
@@ -418,6 +431,29 @@ export default function Home() {
     setToast(message);
     window.setTimeout(() => setToast(""), 2400);
   }, []);
+
+  const loadCalendarProposals = useCallback(async () => {
+    try {
+      const response = await fetch("/api/calendar/proposals", {
+        cache: "no-store",
+      });
+      if (!response.ok) return;
+      const result = (await response.json()) as {
+        proposals?: CalendarProposal[];
+      };
+      setCalendarProposals(result.proposals ?? []);
+    } catch {
+      // Calendar proposals are additive; journaling remains available.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!integrationStatus.authenticated) return;
+    const frame = window.requestAnimationFrame(() => {
+      void loadCalendarProposals();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [integrationStatus.authenticated, loadCalendarProposals]);
 
   async function requestCoach(
     message: string,
@@ -454,11 +490,13 @@ export default function Home() {
       return null;
     }
 
-    return response.json() as Promise<{
+    const result = (await response.json()) as {
       entry: { id: string; occurred_at: string };
       coach: { reply: string; intervention: string } | null;
       warning?: string;
-    }>;
+    };
+    void loadCalendarProposals();
+    return result;
   }
 
   async function addEntry(event: FormEvent) {
@@ -857,6 +895,9 @@ export default function Home() {
               onCoach={() => setTab("coach")}
               onEvening={() => setTab("evening")}
               onRetry={(entry) => void retryEntry(entry)}
+              calendarProposals={calendarProposals}
+              onCalendarChanged={() => void loadCalendarProposals()}
+              onToast={showToast}
             />
           )}
           {tab === "coach" && (
@@ -871,6 +912,9 @@ export default function Home() {
               onSubmit={sendChat}
               onVoice={() => void toggleVoice("chat")}
               onRetry={(message) => void retryChat(message)}
+              calendarProposals={calendarProposals}
+              onCalendarChanged={() => void loadCalendarProposals()}
+              onToast={showToast}
             />
           )}
           {tab === "evening" && (
@@ -883,6 +927,7 @@ export default function Home() {
             <ProfileView
               profile={profile}
               onNotifications={() => setNotificationSettingsOpen(true)}
+              onCalendar={() => setCalendarSettingsOpen(true)}
               onMemory={() =>
                 showToast("Memory review komt in de volgende intelligence-release")
               }
@@ -1044,6 +1089,13 @@ export default function Home() {
         onToast={showToast}
       />
 
+      <CalendarSettings
+        open={calendarSettingsOpen}
+        onClose={() => setCalendarSettingsOpen(false)}
+        onToast={showToast}
+        onChanged={() => void loadCalendarProposals()}
+      />
+
       {toast && (
         <div className="toast">
           <Check size={16} />
@@ -1062,6 +1114,9 @@ function TodayView({
   onCoach,
   onEvening,
   onRetry,
+  calendarProposals,
+  onCalendarChanged,
+  onToast,
 }: {
   date: string;
   entries: JournalEntry[];
@@ -1070,6 +1125,9 @@ function TodayView({
   onCoach: () => void;
   onEvening: () => void;
   onRetry: (entry: JournalEntry) => void;
+  calendarProposals: CalendarProposal[];
+  onCalendarChanged: () => void;
+  onToast: (message: string) => void;
 }) {
   return (
     <div className="page today-page">
@@ -1099,6 +1157,23 @@ function TodayView({
           Praat met coach
         </button>
       </div>
+
+      {calendarProposals.length > 0 && (
+        <section className="calendar-proposal-section">
+          <div className="section-heading">
+            <h2>Agenda</h2>
+            <span>Bevestiging nodig</span>
+          </div>
+          {calendarProposals.map((proposal) => (
+            <CalendarProposalCard
+              key={proposal.id}
+              proposal={proposal}
+              onChanged={onCalendarChanged}
+              onToast={onToast}
+            />
+          ))}
+        </section>
+      )}
 
       <section className="timeline">
         <div className="section-heading">
@@ -1179,6 +1254,9 @@ function CoachView({
   onSubmit,
   onVoice,
   onRetry,
+  calendarProposals,
+  onCalendarChanged,
+  onToast,
 }: {
   messages: ChatMessage[];
   active: boolean;
@@ -1190,6 +1268,9 @@ function CoachView({
   onSubmit: (event: FormEvent) => void;
   onVoice: () => void;
   onRetry: (message: ChatMessage) => void;
+  calendarProposals: CalendarProposal[];
+  onCalendarChanged: () => void;
+  onToast: (message: string) => void;
 }) {
   const streamEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -1283,6 +1364,14 @@ function CoachView({
             </div>
           </div>
         )}
+        {calendarProposals.map((proposal) => (
+          <CalendarProposalCard
+            key={proposal.id}
+            proposal={proposal}
+            onChanged={onCalendarChanged}
+            onToast={onToast}
+          />
+        ))}
         <div ref={streamEndRef} />
       </div>
 
@@ -1538,10 +1627,12 @@ function InsightsView({ entries }: { entries: JournalEntry[] }) {
 function ProfileView({
   profile,
   onNotifications,
+  onCalendar,
   onMemory,
 }: {
   profile: UserProfile;
   onNotifications: () => void;
+  onCalendar: () => void;
   onMemory: () => void;
 }) {
   return (
@@ -1573,6 +1664,14 @@ function ProfileView({
             <span>
               <strong>Wat Northstar weet</strong>
               <small>Controleer en corrigeer je persoonlijke context</small>
+            </span>
+            <ChevronRight size={18} />
+          </button>
+          <button onClick={onCalendar}>
+            <CalendarDays size={19} />
+            <span>
+              <strong>Google Calendar</strong>
+              <small>Planning lezen en wijzigingen eerst bevestigen</small>
             </span>
             <ChevronRight size={18} />
           </button>

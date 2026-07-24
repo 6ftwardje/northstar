@@ -26,6 +26,7 @@ describe("coach contracts", () => {
       observation: "De belangrijkste actie is afgerond.",
       suggestedAction: null,
       memoryCandidates: [],
+      calendarProposal: null,
     });
 
     expect(result.success).toBe(true);
