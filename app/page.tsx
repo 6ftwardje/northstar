@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import {
   FormEvent,
   useCallback,
@@ -108,8 +109,7 @@ const NAV_ITEMS: Array<{
   { id: "today", label: "Vandaag", icon: SunMedium },
   { id: "coach", label: "Coach", icon: MessageCircle },
   { id: "planner", label: "Plan", icon: ListTodo },
-  { id: "insights", label: "Insights", icon: BarChart3 },
-  { id: "profile", label: "Jij", icon: UserRound },
+  { id: "insights", label: "Inzichten", icon: BarChart3 },
 ];
 
 const LEGACY_DEMO_ENTRY_IDS = new Set(["1", "2", "3"]);
@@ -856,22 +856,27 @@ export default function Home() {
   return (
     <main className="app-shell">
       <aside className="desktop-rail">
-        <div className="brand-mark">N</div>
+        <div className="brand-mark" aria-label="Northstar">
+          <Image src="/logo-icon.png" alt="" width={24} height={24} priority />
+        </div>
         <nav aria-label="Hoofdnavigatie">
           {NAV_ITEMS.map((item) => (
             <button
+              type="button"
               key={item.id}
               className={tab === item.id ? "rail-button active" : "rail-button"}
               onClick={() => setTab(item.id)}
               aria-label={item.label}
+              aria-current={tab === item.id ? "page" : undefined}
             >
               <item.icon size={21} strokeWidth={1.8} />
               <span>{item.label}</span>
             </button>
           ))}
         </nav>
-        <button
-          className="rail-button settings"
+          <button
+            type="button"
+            className="rail-button settings"
           aria-label="Instellingen"
           onClick={() => setTab("profile")}
         >
@@ -883,6 +888,7 @@ export default function Home() {
       <section className="phone-stage">
         <header className="topbar">
           <button
+            type="button"
             className="icon-button"
             onClick={() => setMenuOpen(true)}
             aria-label="Menu openen"
@@ -890,13 +896,14 @@ export default function Home() {
             <Menu size={22} />
           </button>
           <div className="wordmark">northstar</div>
-          <button
-            className="avatar"
-            aria-label="Profiel"
-            onClick={() => setTab("profile")}
-          >
-            {profile.initials}
-          </button>
+          <Image
+            className="topbar-logo"
+            src="/logo-icon.png"
+            alt=""
+            width={24}
+            height={24}
+            priority
+          />
         </header>
 
         {hydrated && !integrationStatus.ready && (
@@ -971,9 +978,12 @@ export default function Home() {
         <nav className="bottom-nav" aria-label="Mobiele navigatie">
           {NAV_ITEMS.map((item) => (
             <button
+              type="button"
               key={item.id}
               className={tab === item.id ? "nav-button active" : "nav-button"}
               onClick={() => setTab(item.id)}
+              aria-label={item.label}
+              aria-current={tab === item.id ? "page" : undefined}
             >
               <item.icon size={20} strokeWidth={tab === item.id ? 2.3 : 1.7} />
               <span>{item.label}</span>
@@ -1060,10 +1070,13 @@ export default function Home() {
           >
             <div className="menu-top">
               <div className="brand-lockup">
-                <span className="brand-mark small">N</span>
+                <span className="brand-mark small">
+                  <Image src="/logo-icon.png" alt="" width={20} height={20} />
+                </span>
                 <span>northstar</span>
               </div>
               <button
+                type="button"
                 className="icon-button"
                 onClick={() => setMenuOpen(false)}
                 aria-label="Menu sluiten"
@@ -1071,11 +1084,6 @@ export default function Home() {
                 <X size={21} />
               </button>
             </div>
-            <p className="menu-quote">
-              “Streng op gedrag.
-              <br />
-              Zacht voor de mens.”
-            </p>
             <div className="menu-status">
               <span>{profile.displayName}</span>
               <strong>
@@ -1083,6 +1091,7 @@ export default function Home() {
               </strong>
             </div>
             <button
+              type="button"
               className="menu-row"
               onClick={() => {
                 setMenuOpen(false);
@@ -1093,6 +1102,7 @@ export default function Home() {
               <ChevronRight size={18} />
             </button>
             <button
+              type="button"
               className="menu-row"
               onClick={() => {
                 setMenuOpen(false);
@@ -1103,13 +1113,14 @@ export default function Home() {
               <ChevronRight size={18} />
             </button>
             <button
+              type="button"
               className="menu-row"
               onClick={() => {
                 setMenuOpen(false);
-                setTab("insights");
+                setCalendarSettingsOpen(true);
               }}
             >
-              <BarChart3 size={20} /> Insights
+              <CalendarDays size={20} /> Google Agenda
               <ChevronRight size={18} />
             </button>
           </aside>
