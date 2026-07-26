@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CoachCalendarProposalSchema } from "../calendar/schemas";
+import { CoachTodoChangeSchema } from "../tasks/schemas";
 
 export const CoachRequestSchema = z.object({
   message: z.string().trim().min(1).max(12_000),
@@ -37,17 +38,9 @@ export const CoachOutputSchema = z.object({
     "celebrate",
   ]),
   observation: z.string().max(500),
-  suggestedAction: z
-    .object({
-      title: z.string().max(140),
-      dueAt: z.string().datetime().nullable(),
-      impactDomain: z
-        .enum(["business", "sleep", "movement", "cannabis", "life"])
-        .nullable(),
-    })
-    .nullable(),
   memoryCandidates: z.array(MemoryCandidateSchema).max(4),
   calendarProposal: CoachCalendarProposalSchema,
+  todoChanges: z.array(CoachTodoChangeSchema).max(4),
 });
 
 export type CoachOutput = z.infer<typeof CoachOutputSchema>;

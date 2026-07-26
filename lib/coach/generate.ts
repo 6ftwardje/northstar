@@ -4,12 +4,15 @@ import {
   createCalendarProposal,
   upcomingCalendarContext,
 } from "@/lib/calendar/server";
+import { localDateTimeToUtc } from "@/lib/calendar/local-time";
 import { compileCoachContext, type MemoryRecord } from "@/lib/context";
 import { createOpenAIClient } from "@/lib/openai/client";
 import {
   localDateKey,
+  zonedParts,
   zonedDateTimeToUtc,
 } from "@/lib/notifications/time";
+import { applyCoachTodoChanges } from "@/lib/tasks/server";
 import { createAdminSupabaseClient, createClient } from "@/lib/supabase/server";
 import { COACH_INSTRUCTIONS } from "./prompt";
 import { CoachOutputSchema, type CoachOutput } from "./schemas";
@@ -96,7 +99,9 @@ export async function generateCoachResponse({
         .limit(30),
       supabase
         .from("commitments")
-        .select("id, title, due_at, status, impact_domain, created_at")
+        .select(
+          "id, title, desired_outcome, estimated_minutes, due_at, status, impact_domain, source, coach_revision, created_at",
+        )
         .eq("status", "open")
         .order("due_at", { ascending: true, nullsFirst: false })
         .limit(12),
@@ -116,6 +121,12 @@ export async function generateCoachResponse({
       kind: "commitment",
       title: commitment.title,
       content: [
+        commitment.desired_outcome
+          ? `Gewenst resultaat: ${commitment.desired_outcome}.`
+          : "",
+        commitment.estimated_minutes
+          ? `Duur: ${commitment.estimated_minutes} minuten.`
+          : "",
         commitment.impact_domain
           ? `Domein: ${commitment.impact_domain}.`
           : "",
@@ -160,6 +171,11 @@ export async function generateCoachResponse({
   });
 
   const openai = createOpenAIClient();
+  const now = new Date();
+  const localNow = zonedParts(now, timezone);
+  const localNowValue = `${localDateKey(now, timezone)}T${String(
+    localNow.hour,
+  ).padStart(2, "0")}:${String(localNow.minute).padStart(2, "0")}`;
   const response = await openai.responses.parse({
     model: appConfig.openaiModel,
     instructions: COACH_INSTRUCTIONS,
@@ -168,6 +184,11 @@ export async function generateCoachResponse({
       calendar: {
         connected: calendarContext.length > 0,
         upcomingSevenDays: calendarContext,
+      },
+      localClock: {
+        timezone,
+        now: localNowValue,
+        format: "YYYY-MM-DDTHH:mm (24-uurs lokale tijd)",
       },
     }),
     reasoning: { effort: "medium" },
@@ -188,9 +209,15 @@ export async function generateCoachResponse({
       const calendarProposal = await createCalendarProposal(userId, {
         action: output.calendarProposal.action,
         title: output.calendarProposal.title,
-        startsAt: output.calendarProposal.startsAt,
-        endsAt: output.calendarProposal.endsAt,
-        timezone: output.calendarProposal.timezone,
+        startsAt: localDateTimeToUtc(
+          output.calendarProposal.startsAtLocal,
+          timezone,
+        ).toISOString(),
+        endsAt: localDateTimeToUtc(
+          output.calendarProposal.endsAtLocal,
+          timezone,
+        ).toISOString(),
+        timezone,
         location: output.calendarProposal.location,
         rationale: output.calendarProposal.rationale,
         googleEventId: output.calendarProposal.existingEventId,
@@ -199,6 +226,28 @@ export async function generateCoachResponse({
       calendarProposalId = calendarProposal.id;
     } catch {
       // Coaching remains useful when a calendar suggestion fails validation.
+    }
+  }
+
+  let todoChangeIds: string[] = [];
+  if (output.todoChanges.length > 0) {
+    try {
+      todoChangeIds = await applyCoachTodoChanges({
+        userId,
+        sourceEntryId: entryId,
+        timezone,
+        changes: output.todoChanges,
+        existingCommitments: (commitmentsResult.data ?? []).map(
+          (commitment) => ({
+            id: commitment.id,
+            title: commitment.title,
+            status: commitment.status,
+            coachRevision: commitment.coach_revision ?? 0,
+          }),
+        ),
+      });
+    } catch {
+      // A malformed todo change never blocks the coach reply.
     }
   }
 
@@ -214,6 +263,7 @@ export async function generateCoachResponse({
         in_response_to: entryId,
         channel,
         calendar_proposal_id: calendarProposalId,
+        todo_change_ids: todoChangeIds,
       },
     })
     .select("id")
@@ -275,9 +325,10 @@ export async function generateCoachResponse({
       coach_entry_id: coachEntry.id,
       response_id: response.id,
       calendar_proposal_id: calendarProposalId,
+      todo_change_ids: todoChangeIds,
     },
     model: appConfig.openaiModel,
-    prompt_version: "northstar-coach-v1",
+    prompt_version: "northstar-coach-v2",
   });
 
   if (contextError) throw contextError;

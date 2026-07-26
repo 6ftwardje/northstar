@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isLocalDateTime } from "./local-time";
 
 export const GoogleCallbackSchema = z.object({
   state: z.string().min(32).max(512),
@@ -57,9 +58,12 @@ export const CoachCalendarProposalSchema = z
   .object({
     action: z.enum(["create", "update"]),
     title: z.string().trim().min(1).max(160),
-    startsAt: z.string().datetime(),
-    endsAt: z.string().datetime(),
-    timezone: z.string().trim().min(1).max(80),
+    startsAtLocal: z
+      .string()
+      .refine(isLocalDateTime, "Gebruik 24-uurs lokale tijd."),
+    endsAtLocal: z
+      .string()
+      .refine(isLocalDateTime, "Gebruik 24-uurs lokale tijd."),
     location: z.string().trim().max(200).nullable(),
     existingEventId: z.string().max(1024).nullable(),
     rationale: z.string().trim().min(1).max(500),

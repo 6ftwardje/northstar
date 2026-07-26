@@ -68,7 +68,8 @@ npm run check:setup
    `supabase/migrations/0001_initial.sql` en
    `supabase/migrations/0002_operational_hardening.sql` en
    `supabase/migrations/0003_notification_loop.sql` en
-   `supabase/migrations/0004_google_calendar.sql`.
+   `supabase/migrations/0004_google_calendar.sql` en
+   `supabase/migrations/0005_daily_loop.sql`.
 3. Kopieer bij **Project Settings → API** de project URL, publishable/anon key
    en service-role key naar `.env.local`.
 4. Zet bij **Authentication → URL Configuration**:
@@ -223,9 +224,11 @@ Voor integratietests zonder productiedata staat een apart contract in
 
 ## Datamodel
 
-De eerste migratie staat in `supabase/migrations/0001_initial.sql`. Ruwe
-journal-entries blijven de bron van waarheid. Afgeleide memories bevatten
-zekerheid, belang, geldigheid en verwijzingen naar hun bronentries.
+De migraties staan in `supabase/migrations/`. Ruwe journal-entries blijven de
+bron van waarheid. Afgeleide memories bevatten zekerheid, belang, geldigheid
+en verwijzingen naar hun bronentries. De dagelijkse planlus combineert
+concrete taken, avondreviews en de activiteitenhistoriek zonder de ruwe
+input te overschrijven.
 
 De context compiler in `lib/context.ts` assembleert per coachbeurt:
 

@@ -24,9 +24,9 @@ describe("coach contracts", () => {
       reply: "Goed. Wat is nu de volgende stap met echte impact?",
       intervention: "question",
       observation: "De belangrijkste actie is afgerond.",
-      suggestedAction: null,
       memoryCandidates: [],
       calendarProposal: null,
+      todoChanges: [],
     });
 
     expect(result.success).toBe(true);

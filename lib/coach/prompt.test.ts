@@ -7,5 +7,7 @@ describe("coach identity", () => {
     expect(COACH_INSTRUCTIONS).toContain("huidige gebruiker");
     expect(COACH_INSTRUCTIONS).toContain("Als business een focus is");
     expect(COACH_INSTRUCTIONS).toContain("Als cannabis aan bod komt");
+    expect(COACH_INSTRUCTIONS).toContain("24-uurs tijd");
+    expect(COACH_INSTRUCTIONS).toContain("Iedere todo begint");
   });
 });

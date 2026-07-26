@@ -17,6 +17,7 @@ import {
   ChevronRight,
   CloudOff,
   Lightbulb,
+  ListTodo,
   LoaderCircle,
   Menu,
   MessageCircle,
@@ -39,12 +40,20 @@ import {
   type CalendarProposal,
 } from "@/app/calendar-proposal-card";
 import { CalendarSettings } from "@/app/calendar-settings";
+import { PlannerView } from "@/app/planner-view";
+import { northstarActionHeaders } from "@/lib/client/action";
 import {
   chooseRecorderMimeType,
   getAudioFilename,
 } from "@/lib/audio";
 
-type Tab = "today" | "coach" | "insights" | "profile" | "evening";
+type Tab =
+  | "today"
+  | "coach"
+  | "planner"
+  | "insights"
+  | "profile"
+  | "evening";
 type EntryKind = "note" | "coach" | "health" | "impact";
 
 type JournalEntry = {
@@ -98,6 +107,7 @@ const NAV_ITEMS: Array<{
 }> = [
   { id: "today", label: "Vandaag", icon: SunMedium },
   { id: "coach", label: "Coach", icon: MessageCircle },
+  { id: "planner", label: "Plan", icon: ListTodo },
   { id: "insights", label: "Insights", icon: BarChart3 },
   { id: "profile", label: "Jij", icon: UserRound },
 ];
@@ -145,6 +155,7 @@ export default function Home() {
   const [calendarProposals, setCalendarProposals] = useState<
     CalendarProposal[]
   >([]);
+  const [plannerRefreshKey, setPlannerRefreshKey] = useState(0);
   const [toast, setToast] = useState("");
   const [integrationStatus, setIntegrationStatus] =
     useState<IntegrationStatus>({
@@ -411,6 +422,8 @@ export default function Home() {
         setTab("evening");
       } else if (requestedView === "progress") {
         setTab("insights");
+      } else if (requestedView === "planner") {
+        setTab("planner");
       } else if (requestedView === "memory") {
         setTab("profile");
       }
@@ -496,6 +509,7 @@ export default function Home() {
       warning?: string;
     };
     void loadCalendarProposals();
+    setPlannerRefreshKey((value) => value + 1);
     return result;
   }
 
@@ -702,18 +716,30 @@ export default function Home() {
     if (integrationStatus.ready) {
       const response = await fetch("/api/reviews", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...northstarActionHeaders(),
+        },
         body: JSON.stringify(review),
       });
-      showToast(
-        response.ok
-          ? "Dag veilig afgesloten"
-          : "Review lokaal afgerond; cloudopslag mislukte",
+      const result = (await response.json().catch(() => null)) as {
+        coach?: { reply?: string } | null;
+      } | null;
+      if (!response.ok) {
+        showToast("Review lokaal afgerond; cloudopslag mislukte");
+        return null;
+      }
+      setPlannerRefreshKey((value) => value + 1);
+      void loadCalendarProposals();
+      showToast("Dag veilig afgesloten");
+      return (
+        result?.coach?.reply ??
+        "Je check-in is veilig bewaard. Northstar kon nu geen extra feedback genereren."
       );
     } else {
       showToast("Dag lokaal afgesloten");
+      return "Je check-in staat lokaal klaar. Zodra de coach online is, kan Northstar hier verder op reflecteren.";
     }
-    setTab("today");
   }
 
   async function sendChat(event: FormEvent) {
@@ -919,7 +945,14 @@ export default function Home() {
           )}
           {tab === "evening" && (
             <EveningView
-              onComplete={(review) => void completeReview(review)}
+              onComplete={completeReview}
+              onDone={() => setTab("today")}
+            />
+          )}
+          {tab === "planner" && (
+            <PlannerView
+              refreshKey={plannerRefreshKey}
+              onToast={showToast}
             />
           )}
           {tab === "insights" && <InsightsView entries={entries} />}
@@ -1427,14 +1460,18 @@ function CoachView({
 
 function EveningView({
   onComplete,
+  onDone,
 }: {
-  onComplete: (review: EveningReviewPayload) => void;
+  onComplete: (review: EveningReviewPayload) => Promise<string | null>;
+  onDone: () => void;
 }) {
   const [step, setStep] = useState(0);
   const [impact, setImpact] = useState("");
   const [movement, setMovement] = useState<"yes" | "no" | null>(null);
   const [cannabis, setCannabis] = useState<"yes" | "no" | null>(null);
   const [energy, setEnergy] = useState(7);
+  const [submitting, setSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
   const questions = [
     {
       kicker: "01 · Impact",
@@ -1508,6 +1545,44 @@ function EveningView({
     },
   ];
 
+  async function finishReview() {
+    if (submitting) return;
+    setSubmitting(true);
+    const result = await onComplete({
+      reviewDate: new Intl.DateTimeFormat("en-CA", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date()),
+      impactSummary: impact,
+      movement: movement === null ? null : movement === "yes",
+      cannabisUsed: cannabis === null ? null : cannabis === "yes",
+      energy,
+    });
+    setFeedback(
+      result ??
+        "Je check-in is bewaard. Feedback is nu niet beschikbaar.",
+    );
+    setSubmitting(false);
+  }
+
+  if (feedback) {
+    return (
+      <div className="page evening-page evening-feedback-page">
+        <div className="evening-feedback-mark">
+          <Sparkles size={22} />
+        </div>
+        <span className="eyebrow">Dag afgesloten</span>
+        <h1>Dit neem je mee.</h1>
+        <p>{feedback}</p>
+        <button className="primary-button" onClick={onDone}>
+          Terug naar vandaag
+          <ChevronRight size={18} />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="page evening-page">
       <div className="evening-intro">
@@ -1544,24 +1619,21 @@ function EveningView({
           className="primary-button"
           onClick={() =>
             step === questions.length - 1
-              ? onComplete({
-                  reviewDate: new Intl.DateTimeFormat("en-CA", {
-                    year: "numeric",
-                    month: "2-digit",
-                    day: "2-digit",
-                  }).format(new Date()),
-                  impactSummary: impact,
-                  movement:
-                    movement === null ? null : movement === "yes",
-                  cannabisUsed:
-                    cannabis === null ? null : cannabis === "yes",
-                  energy,
-                })
+              ? void finishReview()
               : setStep((current) => current + 1)
           }
+          disabled={submitting}
         >
-          {step === questions.length - 1 ? "Sluit mijn dag af" : "Volgende"}
-          <ChevronRight size={18} />
+          {submitting ? (
+            <>
+              <LoaderCircle className="spin" size={18} /> Northstar reflecteert…
+            </>
+          ) : (
+            <>
+              {step === questions.length - 1 ? "Sluit mijn dag af" : "Volgende"}
+              <ChevronRight size={18} />
+            </>
+          )}
         </button>
       </div>
     </div>
