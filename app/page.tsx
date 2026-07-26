@@ -122,6 +122,31 @@ function nowTime() {
   }).format(new Date());
 }
 
+function CoachRichText({ text }: { text: string }) {
+  const paragraphs = text.split(/\n{2,}/);
+
+  return (
+    <div className="coach-rich-text">
+      {paragraphs.map((paragraph, paragraphIndex) => (
+        <p key={`${paragraphIndex}-${paragraph.slice(0, 24)}`}>
+          {paragraph.split("\n").map((line, lineIndex, lines) => (
+            <span key={`${lineIndex}-${line.slice(0, 20)}`}>
+              {line.split(/(\*\*[^*]+\*\*)/g).map((part, partIndex) =>
+                part.startsWith("**") && part.endsWith("**") ? (
+                  <strong key={partIndex}>{part.slice(2, -2)}</strong>
+                ) : (
+                  part
+                ),
+              )}
+              {lineIndex < lines.length - 1 && <br />}
+            </span>
+          ))}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 function todayLabel() {
   const raw = new Intl.DateTimeFormat("nl-BE", {
     weekday: "long",
@@ -1336,12 +1361,21 @@ function CoachView({
   return (
     <div className="page coach-page">
       <div className="coach-header">
-        <div className="coach-orb">
-          <Sparkles size={17} />
+        <div
+          className={responding ? "coach-orb thinking" : "coach-orb"}
+          aria-hidden="true"
+        >
+          <Image src="/logo-icon.png" alt="" width={28} height={28} />
         </div>
         <div>
           <h1>Northstar</h1>
-          <span>{active ? "Klaar om mee te denken" : "Tijdelijk offline"}</span>
+          <span>
+            {responding
+              ? "Denkt met je mee…"
+              : active
+                ? "Klaar om mee te denken"
+                : "Tijdelijk offline"}
+          </span>
         </div>
       </div>
 
@@ -1351,11 +1385,15 @@ function CoachView({
             <div className={`message ${message.role}`} key={message.id}>
               {message.role === "coach" && (
                 <div className="message-avatar">
-                  <Sparkles size={13} />
+                  <Image src="/logo-icon.png" alt="" width={19} height={19} />
                 </div>
               )}
               <div>
-                <p>{message.text}</p>
+                {message.role === "coach" ? (
+                  <CoachRichText text={message.text} />
+                ) : (
+                  <p>{message.text}</p>
+                )}
                 <span className="message-meta">
                   {message.time}
                   {message.syncState === "pending" && (
@@ -1398,8 +1436,8 @@ function CoachView({
         )}
         {responding && (
           <div className="message coach coach-typing">
-            <div className="message-avatar">
-              <Sparkles size={13} />
+            <div className="message-avatar thinking">
+              <Image src="/logo-icon.png" alt="" width={19} height={19} />
             </div>
             <div className="typing-dots" aria-label="Northstar denkt na">
               <i />
@@ -1585,7 +1623,7 @@ function EveningView({
         </div>
         <span className="eyebrow">Dag afgesloten</span>
         <h1>Dit neem je mee.</h1>
-        <p>{feedback}</p>
+        <CoachRichText text={feedback} />
         <button className="primary-button" onClick={onDone}>
           Terug naar vandaag
           <ChevronRight size={18} />
