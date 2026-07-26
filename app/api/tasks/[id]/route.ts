@@ -57,3 +57,31 @@ export async function PATCH(
   }
   return NextResponse.json({ task: data });
 }
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  if (!isTrustedActionRequest(request)) {
+    return NextResponse.json({ error: "UNTRUSTED_ACTION" }, { status: 403 });
+  }
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+  const { id } = await params;
+  const { data, error } = await supabase
+    .from("commitments")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .select("id")
+    .maybeSingle();
+  if (error || !data) {
+    return NextResponse.json({ error: "TASK_DELETE_FAILED" }, { status: 404 });
+  }
+  return new NextResponse(null, { status: 204 });
+}

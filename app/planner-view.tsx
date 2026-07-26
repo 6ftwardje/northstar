@@ -12,7 +12,9 @@ import {
   ListTodo,
   LoaderCircle,
   Plus,
+  RotateCcw,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import { northstarActionHeaders } from "@/lib/client/action";
@@ -124,6 +126,7 @@ export function PlannerView({
   const [loading, setLoading] = useState(true);
   const [busyTask, setBusyTask] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [deleteCandidate, setDeleteCandidate] = useState<Task | null>(null);
   const [title, setTitle] = useState("");
   const [outcome, setOutcome] = useState("");
   const [minutes, setMinutes] = useState(15);
@@ -252,6 +255,28 @@ export function PlannerView({
     }
   }
 
+  async function deleteTask(task: Task) {
+    if (busyTask) return;
+    setBusyTask(task.id);
+    try {
+      const response = await fetch(
+        `/api/tasks/${encodeURIComponent(task.id)}`,
+        {
+          method: "DELETE",
+          headers: northstarActionHeaders(),
+        },
+      );
+      if (!response.ok) throw new Error("TASK_DELETE_FAILED");
+      setTasks((current) => current.filter((item) => item.id !== task.id));
+      setDeleteCandidate(null);
+      onToast("Taak verwijderd");
+    } catch {
+      onToast("Taak kon niet worden verwijderd");
+    } finally {
+      setBusyTask(null);
+    }
+  }
+
   function selectMonth(next: string) {
     setMonth(next);
     setSelectedDate(
@@ -356,19 +381,20 @@ export function PlannerView({
             {openTasks.length ? (
               <div className="task-list">
                 {openTasks.map((task) => (
-                  <button
-                    className="task-row"
-                    key={task.id}
-                    onClick={() => void toggleTask(task)}
-                    disabled={busyTask === task.id}
-                  >
-                    <span className="task-check">
+                  <div className="task-row" key={task.id}>
+                    <button
+                      type="button"
+                      className="task-toggle"
+                      onClick={() => void toggleTask(task)}
+                      disabled={busyTask === task.id}
+                      aria-label={`${task.title} afvinken`}
+                    >
                       {busyTask === task.id ? (
                         <LoaderCircle className="spin" size={17} />
                       ) : (
                         <Circle size={19} />
                       )}
-                    </span>
+                    </button>
                     <span className="task-copy">
                       <strong>{task.title}</strong>
                       <small>{task.desired_outcome}</small>
@@ -382,7 +408,16 @@ export function PlannerView({
                         )}
                       </span>
                     </span>
-                  </button>
+                    <button
+                      type="button"
+                      className="task-delete"
+                      onClick={() => setDeleteCandidate(task)}
+                      disabled={busyTask === task.id}
+                      aria-label={`${task.title} verwijderen`}
+                    >
+                      <Trash2 size={17} />
+                    </button>
+                  </div>
                 ))}
               </div>
             ) : (
@@ -400,10 +435,31 @@ export function PlannerView({
                 Recent afgerond <ChevronDown size={15} />
               </summary>
               {doneTasks.map((task) => (
-                <button key={task.id} onClick={() => void toggleTask(task)}>
-                  <Check size={16} />
-                  <span>{task.title}</span>
-                </button>
+                <div className="completed-task-row" key={task.id}>
+                  <button
+                    type="button"
+                    className="completed-task-restore"
+                    onClick={() => void toggleTask(task)}
+                    disabled={busyTask === task.id}
+                    aria-label={`${task.title} terugzetten`}
+                  >
+                    {busyTask === task.id ? (
+                      <LoaderCircle className="spin" size={16} />
+                    ) : (
+                      <RotateCcw size={16} />
+                    )}
+                    <span>{task.title}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="task-delete"
+                    onClick={() => setDeleteCandidate(task)}
+                    disabled={busyTask === task.id}
+                    aria-label={`${task.title} verwijderen`}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               ))}
             </details>
           )}
@@ -507,6 +563,51 @@ export function PlannerView({
             )}
           </div>
         </section>
+      )}
+
+      {deleteCandidate && (
+        <div
+          className="task-delete-overlay"
+          role="presentation"
+          onMouseDown={() => setDeleteCandidate(null)}
+        >
+          <div
+            className="task-delete-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-task-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="task-delete-icon">
+              <Trash2 size={20} />
+            </div>
+            <h2 id="delete-task-title">Taak verwijderen?</h2>
+            <p>
+              “{deleteCandidate.title}” wordt permanent uit je plan verwijderd.
+            </p>
+            <div>
+              <button
+                type="button"
+                onClick={() => setDeleteCandidate(null)}
+                disabled={busyTask === deleteCandidate.id}
+              >
+                Annuleer
+              </button>
+              <button
+                type="button"
+                className="is-destructive"
+                onClick={() => void deleteTask(deleteCandidate)}
+                disabled={busyTask === deleteCandidate.id}
+              >
+                {busyTask === deleteCandidate.id ? (
+                  <LoaderCircle className="spin" size={16} />
+                ) : (
+                  "Verwijder"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
