@@ -12,6 +12,11 @@ import {
   zonedParts,
   zonedDateTimeToUtc,
 } from "@/lib/notifications/time";
+import { persistMemoryCandidates } from "@/lib/memory/persistence";
+import {
+  selectRelevantHistory,
+  type HistoricalContextItem,
+} from "@/lib/memory/retrieval";
 import { applyCoachTodoChanges } from "@/lib/tasks/server";
 import { createAdminSupabaseClient, createClient } from "@/lib/supabase/server";
 import { COACH_INSTRUCTIONS } from "./prompt";
@@ -74,9 +79,12 @@ export async function generateCoachResponse({
     "00:00",
     timezone,
   );
+  const historyCutoff = new Date();
+  historyCutoff.setUTCDate(historyCutoff.getUTCDate() - 90);
 
   const [
     entriesResult,
+    historicalEntriesResult,
     memoriesResult,
     commitmentsResult,
     reviewsResult,
@@ -85,10 +93,18 @@ export async function generateCoachResponse({
     await Promise.all([
       supabase
         .from("journal_entries")
-        .select("id, occurred_at, content")
+        .select("id, occurred_at, content, kind")
         .gte("occurred_at", startOfToday.toISOString())
         .order("occurred_at", { ascending: true })
         .limit(30),
+      supabase
+        .from("journal_entries")
+        .select("id, occurred_at, content, kind, metadata")
+        .gte("occurred_at", historyCutoff.toISOString())
+        .lt("occurred_at", startOfToday.toISOString())
+        .neq("kind", "coach_message")
+        .order("occurred_at", { ascending: false })
+        .limit(120),
       supabase
         .from("memories")
         .select(
@@ -107,10 +123,12 @@ export async function generateCoachResponse({
         .limit(12),
       supabase
         .from("daily_reviews")
-        .select("review_date, coach_summary, impact_summary")
-        .not("coach_summary", "is", null)
+        .select(
+          "id, review_date, status, coach_summary, impact_summary, energy, mood, focus, satisfaction, movement, cannabis_used, sleep_intention, answers, completed_at",
+        )
+        .eq("status", "completed")
         .order("review_date", { ascending: false })
-        .limit(7),
+        .limit(30),
       upcomingCalendarContext(userId),
     ]);
 
@@ -144,6 +162,61 @@ export async function generateCoachResponse({
     }),
   );
 
+  const historicalItems: HistoricalContextItem[] = [
+    ...(historicalEntriesResult.data ?? []).map((entry) => ({
+      id: entry.id,
+      type: "entry" as const,
+      occurredAt: entry.occurred_at,
+      content: entry.content,
+      metadata: {
+        kind: entry.kind,
+        ...(entry.metadata as Record<string, unknown>),
+      },
+    })),
+    ...(reviewsResult.data ?? []).map((review) => ({
+      id: review.id,
+      type: "review" as const,
+      occurredAt:
+        review.completed_at ??
+        zonedDateTimeToUtc(review.review_date, "21:00", timezone).toISOString(),
+      content: [
+        `Avondcheck-in ${review.review_date}.`,
+        review.impact_summary
+          ? `Echte impact: ${review.impact_summary}.`
+          : "Echte impact: niet ingevuld.",
+        review.energy !== null ? `Energie: ${review.energy}/10.` : "",
+        review.mood !== null ? `Mood: ${review.mood}/10.` : "",
+        review.focus !== null ? `Focus: ${review.focus}/10.` : "",
+        review.satisfaction !== null
+          ? `Tevredenheid: ${review.satisfaction}/10.`
+          : "",
+        review.movement !== null
+          ? `Bewogen: ${review.movement ? "ja" : "nee"}.`
+          : "",
+        review.cannabis_used !== null
+          ? `Cannabis: ${review.cannabis_used ? "ja" : "nee"}.`
+          : "",
+        review.sleep_intention
+          ? `Slaapintentie: ${review.sleep_intention}.`
+          : "",
+        review.coach_summary
+          ? `Eerdere coachfeedback: ${review.coach_summary}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      metadata: {
+        reviewDate: review.review_date,
+        answers: review.answers,
+      },
+    })),
+  ];
+  const historicalTimeline = selectRelevantHistory({
+    query: message,
+    items: historicalItems,
+    limit: 18,
+  });
+
   const context = compileCoachContext({
     profile: {
       displayName: profileResult.data?.display_name ?? "Northstar-gebruiker",
@@ -157,11 +230,23 @@ export async function generateCoachResponse({
       createdAt: entry.occurred_at,
       content: entry.content,
     })),
+    historicalTimeline,
     recentSummaries: (reviewsResult.data ?? [])
+      .slice(0, 14)
       .reverse()
       .map((review) => ({
         date: review.review_date,
-        content: [review.impact_summary, review.coach_summary]
+        content: [
+          review.impact_summary,
+          review.energy !== null ? `Energie ${review.energy}/10` : "",
+          review.movement !== null
+            ? `Beweging ${review.movement ? "ja" : "nee"}`
+            : "",
+          review.cannabis_used !== null
+            ? `Cannabis ${review.cannabis_used ? "ja" : "nee"}`
+            : "",
+          review.coach_summary,
+        ]
           .filter(Boolean)
           .join("\n"),
       })),
@@ -271,40 +356,19 @@ export async function generateCoachResponse({
 
   if (coachEntryError) throw coachEntryError;
 
-  if (output.memoryCandidates.length > 0) {
-    const { data: insertedMemories, error: memoryError } = await admin
-      .from("memories")
-      .insert(
-        output.memoryCandidates.map((memory) => ({
-          user_id: userId,
-          kind: memory.kind,
-          status: "candidate",
-          title: memory.title,
-          content: memory.content,
-          confidence: memory.confidence,
-          importance: memory.importance,
-          explicit: memory.explicit,
-          tags: memory.tags,
-          metadata: {
-            extractor_model: appConfig.openaiModel,
-            response_id: response.id,
-          },
-        })),
-      )
-      .select("id");
-
-    if (memoryError) throw memoryError;
-
-    if (insertedMemories?.length) {
-      const { error: sourceError } = await admin.from("memory_sources").insert(
-        insertedMemories.map((memory) => ({
-          memory_id: memory.id,
-          entry_id: entryId,
-          evidence_excerpt: message.slice(0, 500),
-        })),
-      );
-      if (sourceError) throw sourceError;
-    }
+  let learnedMemoryIds: string[] = [];
+  try {
+    learnedMemoryIds = await persistMemoryCandidates({
+      admin,
+      userId,
+      entryId,
+      evidence: message,
+      candidates: output.memoryCandidates,
+      extractorModel: appConfig.openaiModel,
+      responseId: response.id,
+    });
+  } catch {
+    // Memory consolidation is valuable but must never hide a coach reply.
   }
 
   const { error: contextError } = await admin.from("context_runs").insert({
@@ -320,15 +384,18 @@ export async function generateCoachResponse({
     context_manifest: {
       entry_count: context.today.length,
       summary_count: context.recentSummaries.length,
+      historical_item_count: context.historicalTimeline.length,
+      historical_item_ids: context.historicalTimeline.map((item) => item.id),
       active_memory_count: context.activeState.length,
       relevant_memory_count: context.relevantHistory.length,
+      learned_memory_ids: learnedMemoryIds,
       coach_entry_id: coachEntry.id,
       response_id: response.id,
       calendar_proposal_id: calendarProposalId,
       todo_change_ids: todoChangeIds,
     },
     model: appConfig.openaiModel,
-    prompt_version: "northstar-coach-v2",
+    prompt_version: "northstar-coach-v3",
   });
 
   if (contextError) throw contextError;

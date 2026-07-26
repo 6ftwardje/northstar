@@ -30,6 +30,13 @@ export type ContextInput = {
   };
   currentEntry: string;
   todaysEntries: Array<{ id: string; createdAt: string; content: string }>;
+  historicalTimeline: Array<{
+    id: string;
+    type: "entry" | "review";
+    occurredAt: string;
+    content: string;
+    metadata?: Record<string, unknown>;
+  }>;
   recentSummaries: Array<{ date: string; content: string }>;
   activeMemories: MemoryRecord[];
   activeCommitments: MemoryRecord[];
@@ -40,6 +47,7 @@ export type CompiledContext = {
   profile?: ContextInput["profile"];
   currentEntry: string;
   today: ContextInput["todaysEntries"];
+  historicalTimeline: ContextInput["historicalTimeline"];
   recentSummaries: ContextInput["recentSummaries"];
   activeState: MemoryRecord[];
   relevantHistory: MemoryRecord[];
@@ -75,6 +83,7 @@ export function compileCoachContext(input: ContextInput): CompiledContext {
     profile: input.profile,
     currentEntry: input.currentEntry,
     today: input.todaysEntries.slice(-20),
+    historicalTimeline: input.historicalTimeline.slice(-18),
     recentSummaries: input.recentSummaries.slice(-7),
     activeState,
     relevantHistory,
@@ -84,6 +93,8 @@ export function compileCoachContext(input: ContextInput): CompiledContext {
       "Benoem inconsistenties direct en zonder schuldtaal.",
       "Stel maximaal twee concrete volgende acties voor.",
       "Sla geen nieuwe herinnering op zonder bronverwijzing.",
+      "Gebruik historische entries en check-ins wanneer de vraag naar het verleden verwijst.",
+      "Zeg nooit dat historische context ontbreekt voordat historicalTimeline is gecontroleerd.",
     ],
   };
 }

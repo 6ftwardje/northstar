@@ -234,10 +234,14 @@ De context compiler in `lib/context.ts` assembleert per coachbeurt:
 
 1. de huidige entry;
 2. de entries van vandaag;
-3. recente dagsamenvattingen;
-4. actieve commitments en doelen;
-5. relevante historische memories;
-6. expliciete regels rond zekerheid en coaching.
+3. relevante oudere entries en volledige check-ins;
+4. recente dagsamenvattingen;
+5. actieve commitments en doelen;
+6. relevante, brongebonden memories;
+7. expliciete regels rond zekerheid en coaching.
+
+De consolidatie- en retrievalregels staan in
+[docs/memory-architecture.md](docs/memory-architecture.md).
 
 ## Volgende implementatiestappen
 
