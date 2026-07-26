@@ -17,6 +17,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { CoachRichText } from "@/app/coach-rich-text";
 import { northstarActionHeaders } from "@/lib/client/action";
 
 type Task = {
@@ -544,7 +545,9 @@ export function PlannerView({
                     )}
                     {selectedDay.review.coach_summary && (
                       <blockquote>
-                        {selectedDay.review.coach_summary}
+                        <CoachRichText
+                          text={selectedDay.review.coach_summary}
+                        />
                       </blockquote>
                     )}
                   </div>
@@ -555,7 +558,11 @@ export function PlannerView({
                     .map((entry) => (
                       <article key={entry.id}>
                         <time>{timeLabel(entry.occurredAt)}</time>
-                        <p>{entry.text}</p>
+                        {entry.kind === "coach_message" ? (
+                          <CoachRichText text={entry.text} />
+                        ) : (
+                          <p>{entry.text}</p>
+                        )}
                       </article>
                     ))}
                 </div>

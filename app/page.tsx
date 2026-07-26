@@ -41,6 +41,7 @@ import {
   type CalendarProposal,
 } from "@/app/calendar-proposal-card";
 import { CalendarSettings } from "@/app/calendar-settings";
+import { CoachRichText } from "@/app/coach-rich-text";
 import { PlannerView } from "@/app/planner-view";
 import { northstarActionHeaders } from "@/lib/client/action";
 import {
@@ -120,31 +121,6 @@ function nowTime() {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date());
-}
-
-function CoachRichText({ text }: { text: string }) {
-  const paragraphs = text.split(/\n{2,}/);
-
-  return (
-    <div className="coach-rich-text">
-      {paragraphs.map((paragraph, paragraphIndex) => (
-        <p key={`${paragraphIndex}-${paragraph.slice(0, 24)}`}>
-          {paragraph.split("\n").map((line, lineIndex, lines) => (
-            <span key={`${lineIndex}-${line.slice(0, 20)}`}>
-              {line.split(/(\*\*[^*]+\*\*)/g).map((part, partIndex) =>
-                part.startsWith("**") && part.endsWith("**") ? (
-                  <strong key={partIndex}>{part.slice(2, -2)}</strong>
-                ) : (
-                  part
-                ),
-              )}
-              {lineIndex < lines.length - 1 && <br />}
-            </span>
-          ))}
-        </p>
-      ))}
-    </div>
-  );
 }
 
 function todayLabel() {
@@ -1259,7 +1235,11 @@ function TodayView({
                   {index < entries.length - 1 && <i />}
                 </div>
                 <div className="timeline-content">
-                  <p>{entry.text}</p>
+                  {entry.kind === "coach" ? (
+                    <CoachRichText text={entry.text} />
+                  ) : (
+                    <p>{entry.text}</p>
+                  )}
                   {entry.kind !== "coach" &&
                     entry.syncState &&
                     entry.syncState !== "synced" && (

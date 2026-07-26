@@ -5349,6 +5349,29 @@ input:focus-visible {
   line-height: 1.6;
 }
 
+.timeline-entry.coach .coach-rich-text {
+  padding: 14px 15px;
+  border-radius: 14px;
+  background: #f2f2f7;
+}
+
+.timeline-entry.coach .coach-rich-text p {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.history-review blockquote .coach-rich-text,
+.history-entry-list .coach-rich-text {
+  display: grid;
+  gap: 8px;
+}
+
+.history-review blockquote .coach-rich-text p,
+.history-entry-list .coach-rich-text p {
+  margin: 0;
+}
+
 .coach-orb,
 .message-avatar {
   overflow: hidden;
